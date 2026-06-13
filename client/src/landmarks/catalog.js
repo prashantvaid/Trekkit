@@ -1,0 +1,62 @@
+/** Famous landmarks — coords, shape, height, optional Wikimedia photo. */
+export const LANDMARK_CATALOG = [
+  { id: "eiffel", names: ["eiffel tower", "tour eiffel"], lat: 48.8584, lng: 2.2945, shape: "eiffel", heightM: 330, color: "#6b5a45", image: "Eiffel_Tower_from_the_Tour_Montparnasse_3.jpg" },
+  { id: "golden-gate", names: ["golden gate bridge", "golden gate"], lat: 37.8199, lng: -122.4783, shape: "bridge", heightM: 227, spanM: 1200, color: "#c0362c", image: "GoldenGateBridge-001.jpg" },
+  { id: "statue-liberty", names: ["statue of liberty", "liberty island"], lat: 40.6892, lng: -74.0445, shape: "statue", heightM: 93, color: "#5a7a8a", image: "Statue_of_Liberty_7.jpg" },
+  { id: "big-ben", names: ["big ben", "elizabeth tower", "westminster"], lat: 51.5007, lng: -0.1246, shape: "tower", heightM: 96, color: "#8a7a5a", image: "Elizabeth_Tower,_London,_Feb_2015.jpg" },
+  { id: "colosseum", names: ["colosseum", "coliseum"], lat: 41.8902, lng: 12.4922, shape: "amphitheater", heightM: 48, color: "#c4a882", image: "Colosseo_2020.jpg" },
+  { id: "taj-mahal", names: ["taj mahal"], lat: 27.1751, lng: 78.0421, shape: "dome", heightM: 73, color: "#f5f0e8", image: "Taj_Mahal_(Edited).jpeg" },
+  { id: "sydney-opera", names: ["sydney opera house", "opera house sydney"], lat: -33.8568, lng: 151.2153, shape: "sails", heightM: 65, color: "#f0f0f0", image: "Sydney_Opera_House_Sails.jpg" },
+  { id: "tokyo-tower", names: ["tokyo tower"], lat: 35.6586, lng: 139.7454, shape: "lattice", heightM: 333, color: "#d44d3d", image: "Tokyo_Tower_2019.jpg" },
+  { id: "tokyo-skytree", names: ["tokyo skytree", "skytree"], lat: 35.7101, lng: 139.8107, shape: "spire", heightM: 634, color: "#6a8fa8", image: "Tokyo_Skytree_2014_%28cropped%29.JPG" },
+  { id: "christ-redentor", names: ["christ the redeemer", "cristo redentor"], lat: -22.9519, lng: -43.2105, shape: "statue", heightM: 38, color: "#b8b8b0", image: "Christ_the_Redeemer_-_Cristo_Redentor.jpg" },
+  { id: "machu-picchu", names: ["machu picchu"], lat: -13.1631, lng: -72.545, shape: "ruins", heightM: 80, color: "#8a9a6a", image: "Machu_Picchu%2C_Peru.jpg" },
+  { id: "petra", names: ["petra", "al-khazneh", "treasury petra"], lat: 30.3285, lng: 35.4444, shape: "facade", heightM: 40, color: "#c9865c", image: "Al_Khazneh_Petra_edit_2.jpg" },
+  { id: "pyramids-giza", names: ["great pyramid", "pyramids of giza", "giza pyramids"], lat: 29.9792, lng: 31.1342, shape: "pyramid", heightM: 139, color: "#c9b87c", image: "Kheops-Pyramid.jpg" },
+  { id: "burj-khalifa", names: ["burj khalifa"], lat: 25.1972, lng: 55.2744, shape: "spire", heightM: 828, color: "#9ab0c4", image: "Burj_Khalifa.jpg" },
+  { id: "empire-state", names: ["empire state building", "empire state"], lat: 40.7484, lng: -73.9857, shape: "artdeco", heightM: 443, color: "#b8a890", image: "Empire_State_Building_%28aerial_view%29.jpg" },
+  { id: "louvre", names: ["louvre", "louvre pyramid"], lat: 48.8606, lng: 2.3376, shape: "pyramid", heightM: 21, color: "#8ab4c8", image: "Louvre_Museum_Wikimedia_Commons.jpg" },
+  { id: "sagrada", names: ["sagrada familia"], lat: 41.4036, lng: 2.1744, shape: "spire", heightM: 170, color: "#c8b898", image: "Sagrada_Familia_01.jpg" },
+  { id: "acropolis", names: ["acropolis", "parthenon"], lat: 37.9715, lng: 23.7267, shape: "temple", heightM: 35, color: "#e8dcc8", image: "The_Parthenon_in_Athens.jpg" },
+  { id: "angkor-wat", names: ["angkor wat"], lat: 13.4125, lng: 103.867, shape: "temple", heightM: 65, color: "#a89070", image: "Angkor_Wat.jpg" },
+  { id: "niagara", names: ["niagara falls"], lat: 43.0828, lng: -79.0747, shape: "falls", heightM: 52, color: "#7ab8d8", image: "Niagara_Falls_2016.jpg" },
+  { id: "mount-fuji", names: ["mount fuji", "mt fuji", "fuji"], lat: 35.3606, lng: 138.7274, shape: "mountain", heightM: 3776, color: "#e8eef5", image: "Mount_Fuji_from_Motohakone.jpg" },
+  { id: "tower-bridge", names: ["tower bridge", "london tower bridge"], lat: 51.5055, lng: -0.0754, shape: "bridge", heightM: 65, spanM: 240, color: "#2a5a8a", image: "Tower_Bridge_from_Shad_Thames.jpg" },
+  { id: "brandenburg", names: ["brandenburg gate"], lat: 52.5163, lng: 13.3777, shape: "arch", heightM: 26, color: "#c8c0b0", image: "Brandenburg_Gate_%28Berlin%29_%28775070443%29.jpg" },
+  { id: "space-needle", names: ["space needle"], lat: 47.6205, lng: -122.3493, shape: "disc", heightM: 184, color: "#9a8a7a", image: "Space_Needle_2011-07-15.jpg" },
+  { id: "cn-tower", names: ["cn tower"], lat: 43.6426, lng: -79.3871, shape: "disc", heightM: 553, color: "#a0a8b0", image: "CN_Tower_%28cropped%29.jpg" },
+  { id: "hollywood", names: ["hollywood sign"], lat: 34.1341, lng: -118.3215, shape: "sign", heightM: 14, color: "#f0f0f0", image: "Hollywood_Sign_%28Zuschnitt%29.jpg" },
+  { id: "uluru", names: ["uluru", "ayers rock"], lat: -25.3444, lng: 131.0369, shape: "monolith", heightM: 348, color: "#c45a28", image: "Uluru%2C_Northern_Territory.jpg" },
+  { id: "chichen-itza", names: ["chichen itza", "el castillo"], lat: 20.6843, lng: -88.5678, shape: "pyramid", heightM: 30, color: "#c8b080", image: "Chichen_Itza_3.jpg" },
+  { id: "neuschwanstein", names: ["neuschwanstein"], lat: 47.5576, lng: 10.7498, shape: "castle", heightM: 65, color: "#e8e0d0", image: "Neuschwanstein_Castle.jpg" },
+  { id: "forbidden-city", names: ["forbidden city"], lat: 39.9163, lng: 116.3972, shape: "palace", heightM: 35, color: "#c83838", image: "The_Forbidden_City_-_View_from_Coal_Hill.jpg" },
+  { id: "great-wall", names: ["great wall", "great wall of china"], lat: 40.4319, lng: 116.5704, shape: "wall", heightM: 8, color: "#8a7a68", image: "The_Great_Wall_of_China_at_Jinshanling-edit.jpg" },
+  { id: "brooklyn-bridge", names: ["brooklyn bridge"], lat: 40.7061, lng: -73.9969, shape: "bridge", heightM: 84, spanM: 480, color: "#6a6a68", image: "Brooklyn_Bridge_Manhattan.jpg" },
+  { id: "notre-dame", names: ["notre dame", "notre-dame"], lat: 48.853, lng: 2.3499, shape: "cathedral", heightM: 69, color: "#9a8a78", image: "Notre-Dame_de_Paris%2C_4_October_2017.jpg" },
+  { id: "mount-rushmore", names: ["mount rushmore"], lat: 43.8791, lng: -103.4591, shape: "mountain", heightM: 560, color: "#9a8a7a", image: "Dean_Franklin_-_2006_-_Mount_Rushmore.jpg" },
+  { id: "alhambra", names: ["alhambra"], lat: 37.1761, lng: -3.5881, shape: "palace", heightM: 30, color: "#e8dcc8", image: "Alhambra_evening_panorama_Mirador_San_Nicolas_sRGB-1.jpg" },
+  { id: "stonehenge", names: ["stonehenge"], lat: 51.1789, lng: -1.8262, shape: "stones", heightM: 4, color: "#a89888", image: "Stonehenge_August_2013.jpg" },
+  { id: "versailles", names: ["versailles", "palace of versailles"], lat: 48.8049, lng: 2.1204, shape: "palace", heightM: 40, color: "#e8e0d8", image: "Chateau_Versailles_Galerie_des_Glaces.jpg" },
+  { id: "mount-rainier", names: ["mount rainier"], lat: 46.8523, lng: -121.7603, shape: "mountain", heightM: 4392, color: "#f0f4f8", image: "Mount_Rainier_from_west.jpg" },
+  { id: "grand-canyon", names: ["grand canyon"], lat: 36.1069, lng: -112.1129, shape: "canyon", heightM: 400, color: "#c87848", image: "Grand_Canyon_view_from_Pima_Point_2010.jpg" },
+  { id: "table-mountain", names: ["table mountain"], lat: -33.9628, lng: 18.4098, shape: "mountain", heightM: 1085, color: "#8a9a8a", image: "Table_Mountain_from_Bloubergstrand_Beach%2C_Cape_Town%2C_South_Africa.jpg" },
+];
+
+export const PLACE_TYPE_SHAPES = {
+  tower: { shape: "tower", heightM: 120, color: "#b0a898" },
+  monument: { shape: "obelisk", heightM: 45, color: "#a89888" },
+  memorial: { shape: "obelisk", heightM: 40, color: "#989088" },
+  museum: { shape: "dome", heightM: 35, color: "#c8c0b8" },
+  attraction: { shape: "spire", heightM: 80, color: "#b8b0a8" },
+  viewpoint: { shape: "platform", heightM: 25, color: "#98a898" },
+  artwork: { shape: "statue", heightM: 20, color: "#a0a0a0" },
+  ruins: { shape: "ruins", heightM: 30, color: "#a89078" },
+  archaeological_site: { shape: "ruins", heightM: 25, color: "#a89078" },
+  peak: { shape: "mountain", heightM: 800, color: "#d8e0e8" },
+  bridge: { shape: "bridge", heightM: 80, spanM: 300, color: "#888880" },
+};
+
+export function wikimediaThumb(filename, width = 128) {
+  if (!filename) return null;
+  return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(filename)}?width=${width}`;
+}
