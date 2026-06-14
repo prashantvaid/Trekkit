@@ -25,7 +25,12 @@ async function request(path, { method = "GET", body, isForm } = {}) {
   const text = await res.text();
   const data = text ? JSON.parse(text) : {};
   if (!res.ok) {
-    throw new Error(data.error || `Request failed (${res.status})`);
+    const err = data.error;
+    const msg =
+      typeof err === "string"
+        ? err
+        : err?.description || err?.message || `Request failed (${res.status})`;
+    throw new Error(msg);
   }
   return data;
 }
@@ -61,6 +66,19 @@ export const api = {
   // feed
   feed: () => request("/feed"),
 
+  // informative posts
+  createPost: (body) => request("/posts", { method: "POST", body }),
+  getPost: (id) => request(`/posts/${id}`),
+  updatePost: (id, body) => request(`/posts/${id}`, { method: "PATCH", body }),
+  deletePost: (id) => request(`/posts/${id}`, { method: "DELETE" }),
+  userPosts: (userId) => request(`/posts/user/${userId}`),
+  togglePostKudos: (postId) => request(`/posts/${postId}/kudos`, { method: "POST" }),
+  listPostComments: (postId) => request(`/posts/${postId}/comments`),
+  addPostComment: (postId, body) =>
+    request(`/posts/${postId}/comments`, { method: "POST", body: { body } }),
+  deletePostComment: (postId, commentId) =>
+    request(`/posts/${postId}/comments/${commentId}`, { method: "DELETE" }),
+
   // users / friends
   searchUsers: (q) => request(`/users/search?q=${encodeURIComponent(q)}`),
   follow: (userId) => request(`/users/${userId}/follow`, { method: "POST" }),
@@ -82,6 +100,33 @@ export const api = {
     return request(`/geo/search?${params}`);
   },
   getRoute: (coords) => request(`/geo/route?coords=${encodeURIComponent(coords)}`),
+
+  // planner (LiteAPI hotels/flights, Foursquare places, Ollama proxy)
+  plannerPlaces: ({ q, lat, lng, type, sort, radius, limit }) => {
+    const params = new URLSearchParams({ lat, lng, type: type || "restaurant" });
+    if (q) params.set("q", q);
+    if (sort) params.set("sort", sort);
+    if (radius) params.set("radius", radius);
+    if (limit) params.set("limit", limit);
+    return request(`/planner/places?${params}`);
+  },
+  plannerHotels: ({ city, checkIn, checkOut, adults, lat, lng, countryCode, q }) => {
+    const params = new URLSearchParams({ checkIn, checkOut, adults: adults || 1 });
+    if (city) params.set("city", city);
+    if (lat != null) params.set("lat", lat);
+    if (lng != null) params.set("lng", lng);
+    if (countryCode) params.set("countryCode", countryCode);
+    if (q) params.set("q", q);
+    return request(`/planner/hotels?${params}`);
+  },
+  plannerFlights: ({ origin, destination, date, returnDate, adults, nonStop, travelClass, maxPrice }) => {
+    const params = new URLSearchParams({ origin, destination, date, adults: adults || 1 });
+    if (returnDate) params.set("returnDate", returnDate);
+    if (nonStop) params.set("nonStop", "true");
+    if (travelClass) params.set("travelClass", travelClass);
+    if (maxPrice) params.set("maxPrice", maxPrice);
+    return request(`/planner/flights?${params}`);
+  },
 
   // upload
   uploadImage: (file) => {

@@ -1,6 +1,8 @@
 // Small looping mock-UI animations shown inside each tour step. Each one mimics
 // the real Trekkit interaction the step describes.
 
+import MockMapPreview from "./MockMapPreview.jsx";
+
 function PinMock() {
   return (
     <div className="mock pin-mock">
@@ -10,11 +12,7 @@ function PinMock() {
         <span className="mock-caret" />
       </div>
       <div className="mock-result">📍 Kyoto, Kyoto Prefecture, Japan</div>
-      <div className="mock-map">
-        <div className="mock-map-grid" />
-        <span className="mock-pin">📍</span>
-        <span className="mock-ripple" />
-      </div>
+      <MockMapPreview variant="pin" height={136} />
     </div>
   );
 }
@@ -47,14 +45,9 @@ function FeedMock() {
             <span>shared “Two weeks in Japan”</span>
           </div>
         </div>
-        <div className="mock-card-map">
-          <span className="mock-dot d0" />
-          <span className="mock-dot d1" />
-          <span className="mock-dot d2" />
-          <span className="mock-line" />
-        </div>
+        <MockMapPreview variant="route" height={108} className="mock-card-map-live" />
         <div className="mock-card-foot">
-          <span className="mock-kudos">❤ <em>kudos</em></span>
+          <span className="mock-kudos"><em>Like</em></span>
           <span className="mock-plus">+1</span>
         </div>
       </div>

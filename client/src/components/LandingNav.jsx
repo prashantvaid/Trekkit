@@ -4,20 +4,38 @@ import { Link, useNavigate } from "react-router-dom";
 const MENUS = {
   features: {
     label: "Features",
+    blurb: "Map-first tools for logging, planning, and sharing trips.",
     items: [
-      { icon: "🌍", title: "3D trip map", text: "Your route on a living globe", to: "/features#map" },
-      { icon: "📸", title: "Photo pins", text: "Memories where they happened", to: "/features#photos" },
-      { icon: "🧭", title: "Itinerary builder", text: "Plan before you go", to: "/features#plan" },
-      { icon: "👋", title: "Friends & feed", text: "Follow fellow travelers", to: "/features#social" },
+      {
+        icon: "🌍",
+        title: "3D trip map",
+        text: "Pins and arcs on a spinning globe with satellite terrain.",
+        tag: "WebGL map",
+        to: "/features/3d-map",
+      },
+      {
+        icon: "📸",
+        title: "Photo pins",
+        text: "Attach galleries to the exact stop where you took them.",
+        tag: "Per-stop photos",
+        to: "/features/photos",
+      },
+      {
+        icon: "🧭",
+        title: "Itinerary builder",
+        text: "Search hotels and places worldwide before you depart.",
+        tag: "Hotels & planner",
+        to: "/features/planner",
+      },
+      {
+        icon: "👋",
+        title: "Friends & feed",
+        text: "Follow travelers, scroll mapped posts, leave kudos.",
+        tag: "Social discovery",
+        to: "/features/feed",
+      },
     ],
-  },
-  how: {
-    label: "How it works",
-    items: [
-      { icon: "🗺️", title: "Track a trip", text: "Log it day by day", to: "/features#track" },
-      { icon: "📍", title: "Drop your pins", text: "Search any place on earth", to: "/features#pins" },
-      { icon: "✨", title: "Share the journey", text: "Post it to your feed", to: "/features#share" },
-    ],
+    footer: { label: "Explore all features", to: "/features" },
   },
 };
 
@@ -30,8 +48,7 @@ function Dropdown({ menu }) {
     setOpen(true);
   }
   function hide() {
-    // small delay so the cursor can travel into the panel
-    closeTimer.current = setTimeout(() => setOpen(false), 120);
+    closeTimer.current = setTimeout(() => setOpen(false), 140);
   }
 
   return (
@@ -47,16 +64,29 @@ function Dropdown({ menu }) {
         <span className="nav-caret" aria-hidden>▾</span>
       </button>
       <div className="nav-dd-panel" role="menu">
-        {menu.items.map((it) => (
-          <Link key={it.title} to={it.to} className="nav-dd-item" role="menuitem">
-            <span className="nav-dd-icon">{it.icon}</span>
-            <span>
+        <p className="nav-dd-blurb">{menu.blurb}</p>
+        {menu.items.map((it, i) => (
+          <Link
+            key={it.title}
+            to={it.to}
+            className="nav-dd-item"
+            role="menuitem"
+            style={{ "--dd-i": i }}
+          >
+            {it.step ? (
+              <span className="nav-dd-step">{it.step}</span>
+            ) : (
+              <span className="nav-dd-icon">{it.icon}</span>
+            )}
+            <span className="nav-dd-copy">
               <strong>{it.title}</strong>
               <span className="muted small">{it.text}</span>
+              {it.tag && <span className="nav-dd-tag">{it.tag}</span>}
             </span>
+            <span className="nav-dd-arrow" aria-hidden>→</span>
           </Link>
         ))}
-        <Link to="/features" className="nav-dd-all">See all features →</Link>
+        <Link to={menu.footer.to} className="nav-dd-all">{menu.footer.label} →</Link>
       </div>
     </div>
   );
@@ -77,7 +107,9 @@ export default function LandingNav() {
     <header className={`landing-nav ${scrolled ? "scrolled" : ""}`}>
       <Link to="/" className="brand"><span className="brand-mark">🌍</span> Trekkit</Link>
       <nav className="landing-nav-links">
-        <Dropdown menu={MENUS.how} />
+        <Link to="/how-it-works" className="nav-text-link">
+          <span className="nav-underline">How it works</span>
+        </Link>
         <Dropdown menu={MENUS.features} />
         <Link to="/login" className="ghost-btn nav-underline-btn">Log in</Link>
         <button className="solid-btn" onClick={() => navigate("/login?mode=signup")}>Sign up free</button>

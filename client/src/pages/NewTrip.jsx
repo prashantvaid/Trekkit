@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
-import CountryPicker from "../components/CountryPicker.jsx";
-import CountryStepHero from "../components/CountryStepHero.jsx";
+import CountrySetupPanel from "../components/CountrySetupPanel.jsx";
 import { CountryFlag } from "../countryFlags.jsx";
-import { TripSetupNav, TripSetupProgress } from "../components/TripSetupSteps.jsx";
+import { TripSetupNav } from "../components/TripSetupSteps.jsx";
 import { getMapPresetsForCountry } from "../mapPresets.js";
 import { loadPrefs, mapPresetsWithUserDefaults } from "../settingsPrefs.js";
+import { loadLastOrigin, saveLastOrigin } from "../tripOrigin.js";
 
 function defaultTripPublic() {
   return loadPrefs().defaultPublic !== false;
@@ -16,20 +16,30 @@ export default function NewTrip() {
   const navigate = useNavigate();
   const [step, setStep] = useState("country");
   const [country, setCountry] = useState(null);
+  const [origin, setOrigin] = useState(() => loadLastOrigin());
   const [title, setTitle] = useState("");
   const [isPublic, setIsPublic] = useState(defaultTripPublic());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  function handleOriginChange(next) {
+    setOrigin(next);
+    saveLastOrigin(next);
+  }
+
   function canAccess(stepId) {
     if (stepId === "country") return true;
-    if (stepId === "title") return !!country;
+    if (stepId === "title") return !!origin && !!country;
     return false;
   }
 
   function goToTitle() {
+    if (!origin) {
+      setError("Choose where you're traveling from.");
+      return;
+    }
     if (!country) {
-      setError("Choose a country to continue.");
+      setError("Choose where you're going.");
       return;
     }
     setError("");
@@ -38,6 +48,11 @@ export default function NewTrip() {
 
   async function submit(e) {
     e.preventDefault();
+    if (!origin) {
+      setError("Choose where you're traveling from.");
+      setStep("country");
+      return;
+    }
     if (!country) {
       setError("Choose a country to continue.");
       setStep("country");
@@ -61,6 +76,9 @@ export default function NewTrip() {
         destination: country.name,
         destination_lat: country.lat,
         destination_lng: country.lng,
+        origin_country: origin?.name ?? null,
+        origin_country_lat: origin?.lat ?? null,
+        origin_country_lng: origin?.lng ?? null,
         map_presets: JSON.stringify(mapPresets),
       });
       navigate(`/trips/${trip.id}`);
@@ -77,28 +95,28 @@ export default function NewTrip() {
           <div className="new-trip-head-copy">
             <span className="nt-badge">New trip</span>
             <h1>Track a trip</h1>
-            <p className="muted small">Pick a country, name it, then build your route on a live 3D map.</p>
+            <p className="muted small">Pick where you're traveling from and to, name it, then build your route on a live 3D map.</p>
           </div>
-          <TripSetupProgress step={step} />
         </header>
 
         <div className={`card new-trip-form ${busy ? "is-busy" : ""}`}>
           <TripSetupNav step={step} onStep={setStep} canAccess={canAccess} />
 
           {step === "country" ? (
-            <div key="country" className={`new-trip-step country-step nt-step-enter ${country ? "country-ready" : ""}`}>
-              <div className="country-step-layout">
-                <CountryStepHero country={country} />
-                <div className="country-step-picker">
-                  <CountryPicker picked={country} onPick={setCountry} large />
-                </div>
-              </div>
+            <div key="country" className={`new-trip-step country-step nt-step-enter ${origin && country ? "country-ready" : ""}`}>
+              <CountrySetupPanel
+                destination={country}
+                onDestinationChange={setCountry}
+                origin={origin}
+                onOriginChange={handleOriginChange}
+                defaultTab="origin"
+              />
               {error && <div className="error">{error}</div>}
               <button
                 type="button"
                 className="btn-primary btn-xl country-step-cta"
                 onClick={goToTitle}
-                disabled={!country}
+                disabled={!origin || !country}
               >
                 Continue to name your trip
               </button>
@@ -117,9 +135,23 @@ export default function NewTrip() {
                   </div>
                   {country && (
                     <div className="new-trip-country-pill">
-                      <CountryFlag name={country.name} code={country.code} size="md" />
-                      <span className="muted small">Tracking in</span>
-                      <strong>{country.name}</strong>
+                      {origin ? (
+                        <>
+                          <CountryFlag name={origin.name} code={origin.code} size="md" />
+                          <span className="muted small">From</span>
+                          <strong>{origin.name}</strong>
+                          <span className="country-route-arrow muted" aria-hidden>→</span>
+                          <CountryFlag name={country.name} code={country.code} size="md" />
+                          <span className="muted small">To</span>
+                          <strong>{country.name}</strong>
+                        </>
+                      ) : (
+                        <>
+                          <CountryFlag name={country.name} code={country.code} size="md" />
+                          <span className="muted small">Tracking in</span>
+                          <strong>{country.name}</strong>
+                        </>
+                      )}
                       <button type="button" className="link-btn small" onClick={() => setStep("country")}>Change</button>
                     </div>
                   )}

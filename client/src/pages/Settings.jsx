@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { INTEREST_OPTIONS } from "../constants.js";
 import DatePicker from "../components/DatePicker.jsx";
 import { loadPrefs, savePrefs } from "../settingsPrefs.js";
 import { todayIso } from "../dateUtils.js";
+import { normalizeInstagram } from "../instagramUtils.js";
+import { DETAILED_STAT_GROUPS } from "../profileStats.js";
 
 const SECTIONS = [
   { id: "profile", label: "Profile", icon: "👤", group: "You" },
+  { id: "stats", label: "Travel stats", icon: "📊", group: "You" },
   { id: "interests", label: "Interests", icon: "✨", group: "You" },
   { id: "map", label: "Map", icon: "🗺", group: "Experience" },
   { id: "display", label: "Display", icon: "🎨", group: "Experience" },
@@ -99,8 +102,10 @@ function SettingsGroup({ title, children }) {
 
 export default function Settings() {
   const { user, setUser } = useAuth();
-  const [section, setSection] = useState("profile");
+  const location = useLocation();
+  const [section, setSection] = useState(location.state?.section || "profile");
   const [form, setForm] = useState(null);
+  const [stats, setStats] = useState(null);
   const [prefs, setPrefs] = useState(loadPrefs);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -114,6 +119,7 @@ export default function Settings() {
       setForm({
         bio: u.bio || "",
         birthday: u.birthday || "",
+        instagram: u.instagram || "",
         interests: u.interests || [],
         avatar_url: u.avatar_url || "",
         username: u.username,
@@ -122,6 +128,17 @@ export default function Settings() {
       });
     });
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    api.getProfile(user.id).then(({ user: u }) => {
+      setStats({
+        ...u.stats,
+        followerCount: u.followerCount,
+        followingCount: u.followingCount,
+      });
+    }).catch(() => setStats(null));
+  }, [user?.id]);
 
   function set(k, v) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -175,6 +192,7 @@ export default function Settings() {
       const { user: updated } = await api.updateMe({
         bio: form.bio,
         birthday: form.birthday || undefined,
+        instagram: normalizeInstagram(form.instagram),
         interests: form.interests,
         avatar_url: form.avatar_url || undefined,
       });
@@ -225,7 +243,7 @@ export default function Settings() {
 
         <form className="settings-main" onSubmit={save}>
           {section === "profile" && (
-            <section className="card settings-panel">
+            <section className="card settings-panel settings-panel-profile">
               <div className="avatar-upload">
                 <div className="avatar-preview">
                   {form.avatar_url ? (
@@ -236,7 +254,7 @@ export default function Settings() {
                 </div>
                 <div className="avatar-upload-actions">
                   <input ref={fileRef} type="file" accept="image/*" hidden onChange={handleAvatar} />
-                  <button type="button" className="btn-secondary btn-sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                  <button type="button" className="btn-secondary settings-btn" onClick={() => fileRef.current?.click()} disabled={uploading}>
                     {uploading ? "Uploading…" : form.avatar_url ? "Change photo" : "Add photo"}
                   </button>
                   <span className="muted small">JPG/PNG, up to 8MB</span>
@@ -251,7 +269,7 @@ export default function Settings() {
                 max={todayIso()}
                 min="1920-01-01"
               />
-              <label>Bio
+              <label className="settings-form-label">Bio
                 <textarea
                   value={form.bio}
                   onChange={(e) => set("bio", e.target.value)}
@@ -259,8 +277,43 @@ export default function Settings() {
                   rows={3}
                 />
               </label>
+              <div className="settings-stack-field">
+                <div className="settings-field-head">
+                  <strong>Instagram</strong>
+                  <span className="muted small">Optional — shows on your profile</span>
+                </div>
+                <input
+                  type="text"
+                  value={form.instagram}
+                  onChange={(e) => set("instagram", e.target.value)}
+                  placeholder="@username or instagram.com/you"
+                />
+              </div>
               <SoonRow title="Home city" desc="Bias search and recommendations toward your area." />
-              <SoonRow title="Travel links" desc="Instagram, blog, or link-in-bio on your profile." />
+            </section>
+          )}
+
+          {section === "stats" && (
+            <section className="card settings-panel">
+              <p className="muted small settings-hint">
+                Private totals for your account. Only trips, countries, and photos show on your public profile.
+              </p>
+              {stats ? (
+                DETAILED_STAT_GROUPS.map((group) => (
+                  <SettingsGroup key={group.title} title={group.title}>
+                    <div className="settings-kv">
+                      {group.stats.map((s) => (
+                        <div key={s.key} className="settings-kv-row">
+                          <span className="settings-label">{s.label}</span>
+                          <span>{stats[s.key] ?? 0}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </SettingsGroup>
+                ))
+              ) : (
+                <div className="muted">Loading stats…</div>
+              )}
             </section>
           )}
 
@@ -373,7 +426,9 @@ export default function Settings() {
               </SettingsGroup>
               <SettingsGroup title="Push & in-app">
                 <PrefToggle prefKey="pushNotifications" title="Push notifications" prefs={prefs} setPref={setPref} soon />
-                <SoonRow title="In-app notification center" desc="Bell icon with a history of activity." />
+                <p className="settings-row-link muted small">
+                  <Link to="/notifications">Open notification center →</Link>
+                </p>
                 <SoonRow title="Trip reminders" desc="Nudge to add photos after a stop." />
               </SettingsGroup>
             </section>
@@ -394,7 +449,7 @@ export default function Settings() {
               </SettingsGroup>
               <SettingsGroup title="Profile">
                 <PrefToggle prefKey="profileDiscoverable" title="Discoverable profile" desc="Appear in friend suggestions" prefs={prefs} setPref={setPref} soon />
-                <PrefToggle prefKey="showTripStats" title="Show travel stats" desc="Trips, countries, and photos on profile" prefs={prefs} setPref={setPref} soon />
+                <PrefToggle prefKey="showTripStats" title="Show travel highlights" desc="Trips, countries, and photos on your profile" prefs={prefs} setPref={setPref} />
                 <SoonRow title="Blocked accounts" desc="Manage users who can't interact with you." />
               </SettingsGroup>
             </section>
@@ -460,7 +515,7 @@ export default function Settings() {
                 </span>
               </div>
               {NEEDS_SERVER_SAVE.has(section) && (
-                <button type="submit" className="btn-primary btn-sm" disabled={busy}>
+                <button type="submit" className="btn-primary settings-save-btn" disabled={busy}>
                   {busy ? "Saving…" : "Save changes"}
                 </button>
               )}

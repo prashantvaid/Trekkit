@@ -2,6 +2,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { requireAuth } from "../auth.js";
 import { hydrateTrip } from "./trips.routes.js";
+import { getDestinationImages } from "../destinationImages.js";
 
 const router = Router();
 
@@ -96,19 +97,35 @@ function pageDestinations(userId, offset = 0, limit = DEST_PAGE_SIZE) {
   };
 }
 
-router.get("/destinations", requireAuth, (req, res) => {
+async function withDestinationImages(destinations) {
+  return Promise.all(
+    destinations.map(async (d) => {
+      const imageUrls = await getDestinationImages(d.name, d.country);
+      return {
+        ...d,
+        imageUrl: imageUrls[0] || null,
+        imageUrls,
+      };
+    })
+  );
+}
+
+router.get("/destinations", requireAuth, async (req, res) => {
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
   const limit = Math.min(12, Math.max(1, parseInt(req.query.limit, 10) || DEST_PAGE_SIZE));
-  res.json(pageDestinations(req.user.id, offset, limit));
+  const page = pageDestinations(req.user.id, offset, limit);
+  const destinations = await withDestinationImages(page.destinations);
+  res.json({ ...page, destinations });
 });
 
-router.get("/", requireAuth, (req, res) => {
+router.get("/", requireAuth, async (req, res) => {
   const me = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
   const interests = parseInterests(me?.interests);
   const interestSet = new Set(interests);
 
-  const { destinations, total: destinationsTotal, hasMore: destinationsHasMore } =
+  const { destinations: destPage, total: destinationsTotal, hasMore: destinationsHasMore } =
     pageDestinations(req.user.id, 0, DEST_PAGE_SIZE);
+  const destinations = await withDestinationImages(destPage);
 
   // 2) Travelers who share interests (excluding self + people already followed).
   const followed = new Set(

@@ -43,6 +43,10 @@ function getUserStats(userId, includePrivate) {
     )
     .get(userId).c;
 
+  const kudosGiven = db
+    .prepare("SELECT COUNT(*) AS c FROM kudos WHERE user_id = ?")
+    .get(userId).c;
+
   const commentsReceived = db
     .prepare(
       `SELECT COUNT(*) AS c FROM comments c
@@ -71,6 +75,7 @@ function getUserStats(userId, includePrivate) {
     photoCount,
     countryCount,
     kudosReceived,
+    kudosGiven,
     commentsReceived,
     daysTraveled,
   };
@@ -133,7 +138,7 @@ router.get("/following", requireAuth, (req, res) => {
 // A user's public profile
 router.get("/:userId", optionalAuth, (req, res) => {
   const user = db
-    .prepare("SELECT id, username, avatar_url, bio, birthday, interests, created_at FROM users WHERE id = ?")
+    .prepare("SELECT id, username, avatar_url, bio, birthday, instagram, interests, created_at FROM users WHERE id = ?")
     .get(req.params.userId);
   if (!user) return res.status(404).json({ error: "User not found" });
   try {

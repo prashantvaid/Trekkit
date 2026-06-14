@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import db from "../db.js";
 import { signToken, requireAuth } from "../auth.js";
+import { normalizeInstagram } from "../instagram.js";
 
 const router = Router();
 
@@ -76,7 +77,7 @@ router.get("/me", requireAuth, (req, res) => {
 });
 
 router.patch("/me", requireAuth, (req, res) => {
-  const { bio, avatar_url, birthday, interests } = req.body || {};
+  const { bio, avatar_url, birthday, interests, instagram } = req.body || {};
   const interestsJson = Array.isArray(interests) ? JSON.stringify(interests) : undefined;
   db.prepare(
     `UPDATE users SET
@@ -92,6 +93,12 @@ router.patch("/me", requireAuth, (req, res) => {
     interestsJson ?? null,
     req.user.id
   );
+  if ("instagram" in (req.body || {})) {
+    db.prepare("UPDATE users SET instagram = ? WHERE id = ?").run(
+      normalizeInstagram(instagram),
+      req.user.id
+    );
+  }
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
   res.json({ user: publicUser(user) });
 });

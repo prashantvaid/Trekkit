@@ -1,10 +1,11 @@
-import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import TripGlobe from "./TripGlobe.jsx";
-import TripPhotoCollage, { collectTripPhotos } from "./TripPhotoCollage.jsx";
-import ShareButton from "./ShareButton.jsx";
-import BookmarkButton from "./BookmarkButton.jsx";
-import { api } from "../api.js";
+import TripRoutePlayback from "./TripGlobePlayback.jsx";
+import { collectTripPhotos } from "./TripPhotoCollage.jsx";
+import TripTravelJournal from "./TripTravelJournal.jsx";
+import TripEngagement from "./TripEngagement.jsx";
+import { parseStoredMapPresets } from "../mapPresets.js";
+import { tripToOrigin } from "../tripOrigin.js";
+import { useAuth } from "../auth.jsx";
 import { setPlannerImport } from "../plannerImport.js";
 
 function fmtDate(d) {
@@ -18,32 +19,23 @@ function fmtDate(d) {
 
 export default function TripCard({ trip, showPlannerCopy = false }) {
   const navigate = useNavigate();
-  const [kudos, setKudos] = useState(trip.kudos);
-  const [liked, setLiked] = useState(trip.likedByViewer);
+  const { user } = useAuth();
   const photos = collectTripPhotos(trip);
   const photoCount = photos.length;
   const stopCount = trip.stops.length;
   const hasMedia = photoCount > 0 || stopCount > 0;
+  const hasJournal = trip.stops.some(
+    (s) => (s.notes && s.notes.trim()) || (s.photos && s.photos.length > 0)
+  );
 
   function copyToPlanner() {
     setPlannerImport(trip);
     navigate("/plan");
   }
 
-  async function toggleKudos() {
-    setLiked((v) => !v);
-    setKudos((k) => (liked ? k - 1 : k + 1));
-    try {
-      const res = await api.toggleKudos(trip.id);
-      setKudos(res.kudos);
-      setLiked(res.liked);
-    } catch {
-      setLiked((v) => !v);
-    }
-  }
-
   const dateRange = [fmtDate(trip.start_date), fmtDate(trip.end_date)].filter(Boolean).join(" – ");
   const region = trip.country || trip.destination?.split(",")[0];
+  const tripOrigin = tripToOrigin(trip);
 
   return (
     <article className="card trip-card feed-post">
@@ -72,40 +64,57 @@ export default function TripCard({ trip, showPlannerCopy = false }) {
       {trip.description && <p className="trip-desc feed-post-desc">{trip.description}</p>}
 
       {hasMedia ? (
-        <div className={`trip-card-media ${photoCount > 0 ? "has-photos" : "map-only"}`}>
-          {photoCount > 0 && (
-            <TripPhotoCollage photos={photos} tripId={trip.id} />
-          )}
-          {stopCount > 0 && (
+        <div className="trip-card-media">
+          {stopCount > 0 ? (
             <div className="trip-card-map">
-              <TripGlobe
+              <TripRoutePlayback
                 stops={trip.stops}
-                height={photoCount > 0 ? 220 : 360}
-                autoRotate={photoCount === 0}
+                origin={tripOrigin}
+                photos={photos}
+                tripId={trip.id}
+                height={360}
+                mapHeight={photoCount > 0 ? 460 : 520}
+                autoRotate
+                showControls
+                showPhotoStrip={photoCount > 0}
+                focus={
+                  Number.isFinite(trip.country_lat)
+                    ? { lat: trip.country_lat, lng: trip.country_lng }
+                    : null
+                }
+                defaultPresets={parseStoredMapPresets(trip.map_presets)}
               />
             </div>
+          ) : (
+            <div className="globe-empty feed-post-empty">No stops on this trip yet.</div>
           )}
         </div>
       ) : (
         <div className="globe-empty feed-post-empty">No stops or photos yet.</div>
       )}
 
+      {hasJournal && (
+        <TripTravelJournal
+          stops={trip.stops}
+          authorName={trip.author.username}
+          compact
+          maxEntries={3}
+        />
+      )}
+
       <div className="trip-stats feed-post-stats">
         <span className="feed-stat">{stopCount} stop{stopCount === 1 ? "" : "s"}</span>
         <span className="feed-stat">{photoCount} photo{photoCount === 1 ? "" : "s"}</span>
-        {!showPlannerCopy && (
-          <button className={`feed-action ${liked ? "liked" : ""}`} onClick={toggleKudos}>
-            Kudos <span className="feed-action-count">{kudos}</span>
-          </button>
-        )}
-        <ShareButton tripId={trip.id} title={trip.title} className="feed-action" />
-        <BookmarkButton tripId={trip.id} initial={trip.bookmarkedByViewer} className="feed-action" />
         {showPlannerCopy && stopCount > 0 && (
           <button className="feed-action" onClick={copyToPlanner}>
             Add to planner
           </button>
         )}
       </div>
+
+      {!showPlannerCopy && (
+        <TripEngagement trip={trip} currentUser={user} variant="feed" />
+      )}
     </article>
   );
 }

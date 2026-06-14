@@ -20,6 +20,7 @@ db.exec(`
     avatar_url  TEXT,
     bio         TEXT,
     birthday    TEXT,
+    instagram   TEXT,
     interests   TEXT,
     created_at  TEXT NOT NULL
   );
@@ -99,11 +100,44 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS posts (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    title       TEXT,
+    body        TEXT NOT NULL,
+    cover_url   TEXT,
+    topic       TEXT,
+    is_public   INTEGER NOT NULL DEFAULT 1,
+    posted_at   TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS post_kudos (
+    user_id    TEXT NOT NULL,
+    post_id    TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, post_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS post_comments (
+    id         TEXT PRIMARY KEY,
+    post_id    TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
 
 // --- lightweight migrations for databases created before new columns existed ---
 const userCols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
 if (!userCols.includes("birthday")) db.exec("ALTER TABLE users ADD COLUMN birthday TEXT");
+if (!userCols.includes("instagram")) db.exec("ALTER TABLE users ADD COLUMN instagram TEXT");
 if (!userCols.includes("interests")) db.exec("ALTER TABLE users ADD COLUMN interests TEXT");
 
 const tripCols = db.prepare("PRAGMA table_info(trips)").all().map((c) => c.name);
@@ -115,9 +149,13 @@ if (!tripCols.includes("country_lat")) db.exec("ALTER TABLE trips ADD COLUMN cou
 if (!tripCols.includes("country_lng")) db.exec("ALTER TABLE trips ADD COLUMN country_lng REAL");
 if (!tripCols.includes("map_presets")) db.exec("ALTER TABLE trips ADD COLUMN map_presets TEXT");
 if (!tripCols.includes("posted_at")) db.exec("ALTER TABLE trips ADD COLUMN posted_at TEXT");
+if (!tripCols.includes("origin_country")) db.exec("ALTER TABLE trips ADD COLUMN origin_country TEXT");
+if (!tripCols.includes("origin_country_lat")) db.exec("ALTER TABLE trips ADD COLUMN origin_country_lat REAL");
+if (!tripCols.includes("origin_country_lng")) db.exec("ALTER TABLE trips ADD COLUMN origin_country_lng REAL");
 
 const stopCols = db.prepare("PRAGMA table_info(stops)").all().map((c) => c.name);
 if (!stopCols.includes("place_type")) db.exec("ALTER TABLE stops ADD COLUMN place_type TEXT");
+if (!stopCols.includes("transport_mode")) db.exec("ALTER TABLE stops ADD COLUMN transport_mode TEXT");
 
 const photoCols = db.prepare("PRAGMA table_info(photos)").all().map((c) => c.name);
 if (!photoCols.includes("lat")) db.exec("ALTER TABLE photos ADD COLUMN lat REAL");

@@ -50,6 +50,26 @@ export function addMonths(year, month, delta) {
   return { year: d.getFullYear(), month: d.getMonth() };
 }
 
+export function isYearDisabled(year, min, max) {
+  const minP = min ? parseIsoDate(min) : null;
+  const maxP = max ? parseIsoDate(max) : null;
+  if (minP && year < minP.year) return true;
+  if (maxP && year > maxP.year) return true;
+  return false;
+}
+
+export function isMonthDisabled(year, month, min, max) {
+  const minP = min ? parseIsoDate(min) : null;
+  const maxP = max ? parseIsoDate(max) : null;
+  if (minP && (year < minP.year || (year === minP.year && month < minP.month))) return true;
+  if (maxP && (year > maxP.year || (year === maxP.year && month > maxP.month))) return true;
+  return false;
+}
+
+export function yearPageStartFor(year) {
+  return Math.floor(year / 12) * 12;
+}
+
 /** Build a 6-row calendar grid (Sun–Sat). */
 export function buildCalendarGrid(year, month) {
   const firstDow = new Date(year, month, 1).getDay();

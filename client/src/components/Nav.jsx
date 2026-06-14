@@ -1,9 +1,11 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
+import { useNotifications } from "../notifications/useNotifications.js";
 
 export default function Nav() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { unreadCount } = useNotifications();
 
   function handleLogout() {
     logout();
@@ -21,9 +23,16 @@ export default function Nav() {
             <NavLink to="/" end>Feed</NavLink>
             <NavLink to="/recommended">For You</NavLink>
             <NavLink to="/plan">Plan</NavLink>
-            <NavLink to="/saved">Saved</NavLink>
+            <NavLink to="/notifications" className="nav-notif-link">
+              Notifications
+              {unreadCount > 0 && (
+                <span className="nav-notif-badge" aria-label={`${unreadCount} unread`}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </NavLink>
             <NavLink to="/friends">Friends</NavLink>
-            <NavLink to="/trips/new" className="btn-track">+ Track a Trip</NavLink>
+            <NavLink to="/post" className="btn-track">+ Post</NavLink>
           </nav>
           <div className="nav-right">
             <NavLink to="/settings" className="nav-settings">Settings</NavLink>

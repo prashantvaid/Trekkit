@@ -1,55 +1,14 @@
 import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { DEMO_MAP_STYLE, JAPAN_DEMO_STOPS as CITIES } from "./demoMapStyle.js";
 
 // A real 3D *terrain* map (satellite imagery draped over elevation data) that
 // flies across Japan's mountains — Tokyo → Hakone (Mt. Fuji) → Kyoto — dropping
 // a pin at each, looping in sync with the cursor demo. Uses keyless tile
 // sources (Esri imagery + free terrain DEM), so no API token is required.
-const CITIES = [
-  { name: "Tokyo",  lng: 139.69, lat: 35.66, zoom: 11.2, pitch: 66, bearing: 22 },
-  { name: "Hakone", lng: 138.76, lat: 35.31, zoom: 12.0, pitch: 76, bearing: -22 }, // looks toward Mt. Fuji
-  { name: "Kyoto",  lng: 135.78, lat: 34.99, zoom: 11.6, pitch: 70, bearing: 16 },
-];
 
 const EXAGGERATION = 1.8;
-
-const STYLE = {
-  version: 8,
-  sources: {
-    imagery: {
-      type: "raster",
-      tiles: [
-        "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      ],
-      tileSize: 256,
-      maxzoom: 18,
-      attribution: "Imagery © Esri",
-    },
-    // Higher-resolution elevation (AWS Terrain Tiles) for crisper mountains.
-    dem: {
-      type: "raster-dem",
-      tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
-      encoding: "terrarium",
-      tileSize: 256,
-      maxzoom: 14,
-    },
-  },
-  layers: [
-    { id: "imagery", type: "raster", source: "imagery" },
-    {
-      id: "hillshade",
-      type: "hillshade",
-      source: "dem",
-      paint: {
-        "hillshade-exaggeration": 0.4,
-        "hillshade-shadow-color": "#3a2b1f",
-        "hillshade-highlight-color": "#fff6ec",
-      },
-    },
-  ],
-  terrain: { source: "dem", exaggeration: EXAGGERATION },
-};
 
 export default function DemoMap({ playing }) {
   const containerRef = useRef(null);
@@ -59,11 +18,17 @@ export default function DemoMap({ playing }) {
   const loopRef = useRef(null);
   const readyRef = useRef(false);
 
+  const FLY_STOPS = [
+    { ...CITIES[0], zoom: 11.2, pitch: 66, bearing: 22 },
+    { ...CITIES[1], zoom: 12.0, pitch: 76, bearing: -22 },
+    { ...CITIES[2], zoom: 11.6, pitch: 70, bearing: 16 },
+  ];
+
   // Create the map once.
   useEffect(() => {
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: STYLE,
+      style: DEMO_MAP_STYLE,
       center: [138, 35.7],
       zoom: 6,
       pitch: 55,
@@ -133,11 +98,29 @@ export default function DemoMap({ playing }) {
 
       const runOnce = () => {
         clearMarkers();
-        const flyToCity = (c) => map.flyTo({ center: [c.lng, c.lat], zoom: c.zoom, pitch: c.pitch, bearing: c.bearing, duration: 2200, essential: true });
-        flyToCity(CITIES[0]);
-        dropMarker(CITIES[0]);
-        timersRef.current.push(setTimeout(() => { flyToCity(CITIES[1]); dropMarker(CITIES[1]); }, 2700));
-        timersRef.current.push(setTimeout(() => { flyToCity(CITIES[2]); dropMarker(CITIES[2]); }, 5300));
+        const flyToCity = (c) =>
+          map.flyTo({
+            center: [c.lng, c.lat],
+            zoom: c.zoom,
+            pitch: c.pitch,
+            bearing: c.bearing,
+            duration: 2200,
+            essential: true,
+          });
+        flyToCity(FLY_STOPS[0]);
+        dropMarker(FLY_STOPS[0]);
+        timersRef.current.push(
+          setTimeout(() => {
+            flyToCity(FLY_STOPS[1]);
+            dropMarker(FLY_STOPS[1]);
+          }, 2700)
+        );
+        timersRef.current.push(
+          setTimeout(() => {
+            flyToCity(FLY_STOPS[2]);
+            dropMarker(FLY_STOPS[2]);
+          }, 5300)
+        );
       };
 
       runOnce();

@@ -1,17 +1,22 @@
-import express from "express";
-import cors from "cors";
+import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import express from "express";
+import cors from "cors";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 import authRoutes from "./routes/auth.routes.js";
 import tripRoutes from "./routes/trips.routes.js";
 import userRoutes from "./routes/users.routes.js";
 import feedRoutes from "./routes/feed.routes.js";
+import postsRoutes from "./routes/posts.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import geoRoutes from "./routes/geo.routes.js";
 import recommendationsRoutes from "./routes/recommendations.routes.js";
+import plannerRoutes from "./routes/planner.routes.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4000;
 
@@ -27,9 +32,11 @@ app.use("/api/auth", authRoutes);
 app.use("/api/trips", tripRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/feed", feedRoutes);
+app.use("/api/posts", postsRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/geo", geoRoutes);
 app.use("/api/recommendations", recommendationsRoutes);
+app.use("/api/planner", plannerRoutes);
 
 // Centralized error handler (e.g. multer file-size / type errors)
 app.use((err, _req, res, _next) => {

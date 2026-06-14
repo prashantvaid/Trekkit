@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api.js";
-import TripCard from "../components/TripCard.jsx";
+import { api } from "../api";
+import TripCard from "../components/TripCard";
 
 const GRADS = [
   "linear-gradient(135deg,#ff8a3c,#ff5a1f)",
@@ -9,6 +9,62 @@ const GRADS = [
   "linear-gradient(135deg,#ffd27a,#ffa14c)",
   "linear-gradient(135deg,#ff9a5c,#ff6a2c)",
 ];
+
+const MAP_URL = /\b(map|maps|locator|location_map|relief_map|flag_of|coat_of_arms|emblem|openstreetmap|osm)\b/i;
+const PEOPLE_URL = /\b(portrait|headshot|selfie|person|people|woman|women|man|men|model|wedding|bikini|nude|crowd)\b/i;
+
+function scenicUrls(urls) {
+  return (urls || []).filter((u) => {
+    if (!u) return false;
+    const hay = decodeURIComponent(u).toLowerCase();
+    return !MAP_URL.test(hay) && !PEOPLE_URL.test(hay);
+  });
+}
+
+function DestPhoto({ destination, index }) {
+  const urls = scenicUrls(
+    destination.imageUrls?.length
+      ? destination.imageUrls
+      : destination.imageUrl
+        ? [destination.imageUrl]
+        : []
+  ).slice(0, 2);
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const [broken, setBroken] = useState(false);
+
+  const current = urls[photoIdx];
+  const showImage = current && !broken;
+
+  return (
+    <div
+      className={`dest-photo${showImage ? " dest-photo-has-image" : ""}`}
+      style={!showImage ? { background: GRADS[index % GRADS.length] } : undefined}
+    >
+      {showImage ? (
+        <img
+          src={current}
+          alt={`${destination.name}, ${destination.country}`}
+          className="dest-photo-img"
+          loading="lazy"
+          onError={() => {
+            if (photoIdx < urls.length - 1) {
+              setPhotoIdx((i) => i + 1);
+            } else {
+              setBroken(true);
+            }
+          }}
+        />
+      ) : (
+        <span className="dest-emoji">{destination.emoji}</span>
+      )}
+      {destination.matched?.length > 0 && (
+        <span className="dest-match">
+          ★ {destination.matched.length} match{destination.matched.length > 1 ? "es" : ""}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export default function Recommended() {
   const [data, setData] = useState(null);
@@ -46,7 +102,7 @@ export default function Recommended() {
       });
       setHasMoreDest(res.hasMore);
     } catch {
-      // keep scroll position; user can try again by scrolling
+      /* keep scroll position */
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
@@ -99,7 +155,7 @@ export default function Recommended() {
         {!hasInterests && (
           <div className="card interest-nudge">
             🎯 <strong>Want sharper recommendations?</strong> Tell us what you love —
-            beaches, mountains, food, history — and we'll tune these to you.{" "}
+            beaches, mountains, food, history — and we&apos;ll tune these to you.{" "}
             <Link to="/settings" className="nudge-link">Edit your interests →</Link>
           </div>
         )}
@@ -109,7 +165,7 @@ export default function Recommended() {
         <div className="rec-container">
           <div className="rec-section-head">
             <div>
-              <h2>Destinations you'll love</h2>
+              <h2>Destinations you&apos;ll love</h2>
               <p className="rec-sub muted">Hand-picked spots that match your travel style.</p>
             </div>
             <span className="rec-hint">Scroll to browse →</span>
@@ -118,14 +174,7 @@ export default function Recommended() {
             <div className="dest-scroller" ref={scrollerRef}>
               {destinations.map((d, i) => (
                 <article className="dest-card" key={d.id}>
-                  <div className="dest-photo" style={{ background: GRADS[i % GRADS.length] }}>
-                    <span className="dest-emoji">{d.emoji}</span>
-                    {d.matched?.length > 0 && (
-                      <span className="dest-match">
-                        ★ {d.matched.length} match{d.matched.length > 1 ? "es" : ""}
-                      </span>
-                    )}
-                  </div>
+                  <DestPhoto destination={d} index={i} />
                   <div className="dest-body">
                     <div className="dest-name">{d.name}</div>
                     <div className="dest-country muted small">{d.country}</div>

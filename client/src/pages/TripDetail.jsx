@@ -4,13 +4,15 @@ import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import TripMap from "../components/TripMap.jsx";
 import AddStop from "../components/AddStop.jsx";
-import StopPhotos from "../components/StopPhotos.jsx";
+import TripItinerary from "../components/TripItinerary.jsx";
 import TripRegionSetup from "../components/TripRegionSetup.jsx";
 import TripDescription from "../components/TripDescription.jsx";
-import TripGlobe from "../components/TripGlobe.jsx";
+import TripRoutePlayback from "../components/TripGlobePlayback.jsx";
+import TripTravelJournal from "../components/TripTravelJournal.jsx";
+import TripEngagement from "../components/TripEngagement.jsx";
+import { collectTripPhotos } from "../components/TripPhotoCollage.jsx";
 import {
   TripSetupNav,
-  TripSetupProgress,
   TripSetupCountryPanel,
   TripSetupTitlePanel,
   TripSetupStoryPanel,
@@ -18,6 +20,7 @@ import {
 } from "../components/TripSetupSteps.jsx";
 import { CountryFlag } from "../countryFlags.jsx";
 import { getMapRegion, hasMapRegion } from "../mapPresets.js";
+import { tripToOrigin } from "../tripOrigin.js";
 
 function fmtDate(d) {
   if (!d) return null;
@@ -26,11 +29,6 @@ function fmtDate(d) {
   } catch {
     return d;
   }
-}
-
-function fmtCoords(lat, lng) {
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "";
-  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
 export default function TripDetail() {
@@ -43,6 +41,7 @@ export default function TripDetail() {
   const [draftPin, setDraftPin] = useState(null);
   const [setupStep, setSetupStep] = useState("map");
   const [setupMode, setSetupMode] = useState(false);
+  const [configuringStop, setConfiguringStop] = useState(false);
   const stopRefs = useRef({});
 
   function goToSetup(step) {
@@ -75,6 +74,7 @@ export default function TripDetail() {
   const mapReady = hasMapRegion(trip);
   const isTracking = isOwner && mapReady && (!trip.posted_at || setupMode);
   const globeStops = globeStopsFromTrip(trip);
+  const tripOrigin = tripToOrigin(trip);
   const mapHeight = isTracking ? "clamp(440px, 68vh, 720px)" : isOwner ? 560 : 460;
 
   function focusStop(stop) {
@@ -98,6 +98,11 @@ export default function TripDetail() {
   return (
     <div className={`page trip-detail ${isTracking ? "trip-detail-tracking" : ""}`}>
       <div className="trip-detail-container">
+      {trip.posted_at && (
+        <div className="trip-detail-nav">
+          <Link to="/" className="trip-back-feed">← Back to feed</Link>
+        </div>
+      )}
       {isTracking ? (
         <>
         <div className="trip-track-bar">
@@ -114,7 +119,6 @@ export default function TripDetail() {
             <button type="button" className="link-btn danger small" onClick={handleDeleteTrip}>Delete</button>
           </div>
         </div>
-        <TripSetupProgress step={setupStep} />
         <div className="card trip-setup-form">
           <TripSetupNav step={setupStep} onStep={goToSetup} />
           {setupStep === "country" && (
@@ -130,6 +134,7 @@ export default function TripDetail() {
                   <div className="trip-map-wrap">
                     <TripMap
                       stops={stops}
+                      origin={tripOrigin}
                       draft={draftPin}
                       focus={
                         mapRegion
@@ -144,6 +149,9 @@ export default function TripDetail() {
                     >
                       <div className="map-legend">
                         <span className="map-legend-count">{stops.length} stop{stops.length === 1 ? "" : "s"}</span>
+                        {tripOrigin && (
+                          <span className="map-legend-origin">From {tripOrigin.name}</span>
+                        )}
                         {photoCount > 0 && (
                           <span className="map-legend-photos">{photoCount} photo{photoCount === 1 ? "" : "s"} on map</span>
                         )}
@@ -152,7 +160,7 @@ export default function TripDetail() {
                         ) : stops.length === 0 && mapRegion ? (
                           <span className="muted small">Centered on {mapRegion.name}</span>
                         ) : (
-                          stops.length > 1 && <span className="muted small">Road route in travel order</span>
+                          stops.length > 1 && <span className="muted small">Routes colored by how you traveled</span>
                         )}
                       </div>
                       {stops.length === 0 && setupStep === "map" && (
@@ -166,15 +174,16 @@ export default function TripDetail() {
                 <div className="studio-side">
                   {setupStep === "map" && (
                     <>
-                      <div className="card builder-card">
-                        <AddStop
+                      <AddStop
                           tripId={trip.id}
-                          nextDay={(stops.at(-1)?.day || 0) + 1}
+                          stops={stops}
                           onAdded={load}
                           onDraftChange={setDraftPin}
+                          onConfiguringChange={setConfiguringStop}
                           bias={mapRegion ? { lat: mapRegion.lat, lng: mapRegion.lng } : null}
                         />
-                      </div>
+                      {!configuringStop && (
+                        <>
                       <div className="card itinerary-card">
                         <div className="itinerary-head">
                           <h2>Itinerary</h2>
@@ -183,46 +192,28 @@ export default function TripDetail() {
                         {stops.length === 0 ? (
                           <p className="muted">No stops pinned yet.</p>
                         ) : (
-                          <ol className="stop-list">
-                            {stops.map((stop, i) => (
-                              <li
-                                key={stop.id}
-                                ref={(el) => (stopRefs.current[stop.id] = el)}
-                                className={`stop ${selectedStopId === stop.id ? "selected" : ""}`}
-                                onClick={() => focusStop(stop)}
-                              >
-                                <div className="stop-index">{i + 1}</div>
-                                <div className="stop-body">
-                                  <div className="stop-top">
-                                    <strong>{stop.name}</strong>
-                                    {stop.day != null && <span className="tag">Day {stop.day}</span>}
-                                  </div>
-                                  <span className="stop-coords">{fmtCoords(stop.lat, stop.lng)}</span>
-                                  {stop.notes && <p className="stop-notes">{stop.notes}</p>}
-                                  <StopPhotos tripId={trip.id} stop={stop} isOwner={isOwner} onChange={load} />
-                                  <button
-                                    className="link-btn danger small"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDeleteStop(stop.id);
-                                    }}
-                                  >
-                                    Remove stop
-                                  </button>
-                                </div>
-                              </li>
-                            ))}
-                          </ol>
+                          <TripItinerary
+                            stops={stops}
+                            tripId={trip.id}
+                            isOwner={isOwner}
+                            selectedStopId={selectedStopId}
+                            stopRefs={stopRefs}
+                            onFocusStop={focusStop}
+                            onDeleteStop={handleDeleteStop}
+                            onChange={load}
+                          />
                         )}
                       </div>
                       {stops.length > 0 && (
                         <button
                           type="button"
-                          className="btn-primary btn-lg studio-story-cta"
+                          className="btn-primary studio-story-cta"
                           onClick={() => goToSetup("story")}
                         >
                           Continue to story →
                         </button>
+                      )}
+                        </>
                       )}
                     </>
                   )}
@@ -283,8 +274,35 @@ export default function TripDetail() {
           {trip.posted_at && globeStops.length > 0 && (
             <div className="card trip-posted-globe">
               <div className="trip-card-map">
-                <TripGlobe stops={globeStops} height={400} autoRotate />
+                <TripRoutePlayback
+                  stops={globeStops}
+                  origin={tripOrigin}
+                  photos={collectTripPhotos(trip)}
+                  tripId={trip.id}
+                  height={400}
+                  mapHeight={480}
+                  autoRotate
+                  showControls
+                  showPhotoStrip={photoCount > 0}
+                  focus={
+                    mapRegion
+                      ? { lat: mapRegion.lat, lng: mapRegion.lng }
+                      : null
+                  }
+                  defaultPresets={mapRegion?.presets}
+                />
               </div>
+            </div>
+          )}
+          {trip.posted_at && stops.some((s) => s.notes?.trim() || s.photos?.length) && (
+            <TripTravelJournal
+              stops={stops}
+              authorName={trip.author.username}
+            />
+          )}
+          {trip.posted_at && trip.is_public && (
+            <div className="card trip-engagement-card">
+              <TripEngagement trip={trip} currentUser={user} variant="detail" />
             </div>
           )}
         </>
@@ -299,6 +317,7 @@ export default function TripDetail() {
           <div className="trip-map-wrap">
             <TripMap
               stops={stops}
+              origin={tripOrigin}
               draft={draftPin}
               focus={
                 mapRegion
@@ -312,6 +331,9 @@ export default function TripDetail() {
             >
               <div className="map-legend">
                 <span className="map-legend-count">{stops.length} stop{stops.length === 1 ? "" : "s"}</span>
+                {tripOrigin && (
+                  <span className="map-legend-origin">From {tripOrigin.name}</span>
+                )}
                 {photoCount > 0 && (
                   <span className="map-legend-photos">{photoCount} photo{photoCount === 1 ? "" : "s"} on map</span>
                 )}
@@ -320,7 +342,7 @@ export default function TripDetail() {
                 ) : stops.length === 0 && mapRegion ? (
                   <span className="muted small">Centered on {mapRegion.name}</span>
                 ) : (
-                  stops.length > 1 && <span className="muted small">Road route in travel order</span>
+                  stops.length > 1 && <span className="muted small">Routes colored by how you traveled</span>
                 )}
               </div>
               {stops.length === 0 && isOwner && (
@@ -343,59 +365,38 @@ export default function TripDetail() {
           )}
 
           {isOwner && mapReady && (
-            <div className="card builder-card">
-              <AddStop
+            <AddStop
                 tripId={trip.id}
-                nextDay={(stops.at(-1)?.day || 0) + 1}
+                stops={stops}
                 onAdded={load}
                 onDraftChange={setDraftPin}
+                onConfiguringChange={setConfiguringStop}
                 bias={mapRegion ? { lat: mapRegion.lat, lng: mapRegion.lng } : null}
               />
-            </div>
           )}
 
+          {!configuringStop && (
           <div className="card itinerary-card">
             <div className="itinerary-head">
-              <h2>Itinerary</h2>
+              <h2>{trip.posted_at ? "Travel journal" : "Itinerary"}</h2>
               <span className="muted small">{stops.length} stop{stops.length === 1 ? "" : "s"}</span>
             </div>
             {stops.length === 0 ? (
               <p className="muted">No stops pinned yet.</p>
             ) : (
-              <ol className="stop-list">
-                {stops.map((stop, i) => (
-                  <li
-                    key={stop.id}
-                    ref={(el) => (stopRefs.current[stop.id] = el)}
-                    className={`stop ${selectedStopId === stop.id ? "selected" : ""}`}
-                    onClick={() => focusStop(stop)}
-                  >
-                    <div className="stop-index">{i + 1}</div>
-                    <div className="stop-body">
-                      <div className="stop-top">
-                        <strong>{stop.name}</strong>
-                        {stop.day != null && <span className="tag">Day {stop.day}</span>}
-                      </div>
-                      <span className="stop-coords">{fmtCoords(stop.lat, stop.lng)}</span>
-                      {stop.notes && <p className="stop-notes">{stop.notes}</p>}
-                      <StopPhotos tripId={trip.id} stop={stop} isOwner={isOwner} onChange={load} />
-                      {isOwner && (
-                        <button
-                          className="link-btn danger small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteStop(stop.id);
-                          }}
-                        >
-                          Remove stop
-                        </button>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ol>
+              <TripItinerary
+                stops={stops}
+                tripId={trip.id}
+                isOwner={isOwner}
+                selectedStopId={selectedStopId}
+                stopRefs={stopRefs}
+                onFocusStop={focusStop}
+                onDeleteStop={isOwner ? handleDeleteStop : null}
+                onChange={load}
+              />
             )}
           </div>
+          )}
         </div>
       </div>
       ) : null}

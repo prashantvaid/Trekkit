@@ -4,10 +4,14 @@ import {
   buildCalendarGrid,
   compareIso,
   formatDisplayDate,
+  isMonthDisabled,
+  isYearDisabled,
   MONTHS_LONG,
+  MONTHS_SHORT,
   parseIsoDate,
   toIsoDate,
   todayIso,
+  yearPageStartFor,
 } from "../dateUtils.js";
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -32,13 +36,22 @@ export default function DatePicker({
   const today = parseIsoDate(todayIso());
 
   const [open, setOpen] = useState(false);
+  const [panel, setPanel] = useState("days");
   const [view, setView] = useState(() =>
     parsed ? { year: parsed.year, month: parsed.month } : { year: today.year, month: today.month }
   );
+  const [yearPageStart, setYearPageStart] = useState(() => yearPageStartFor(view.year));
 
   useEffect(() => {
-    if (parsed) setView({ year: parsed.year, month: parsed.month });
+    if (parsed) {
+      setView({ year: parsed.year, month: parsed.month });
+      setYearPageStart(yearPageStartFor(parsed.year));
+    }
   }, [value]);
+
+  useEffect(() => {
+    if (!open) setPanel("days");
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -46,7 +59,10 @@ export default function DatePicker({
       if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
     }
     function onKey(e) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        if (panel !== "days") setPanel("days");
+        else setOpen(false);
+      }
     }
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
@@ -54,7 +70,7 @@ export default function DatePicker({
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, panel]);
 
   function isDisabledCell(cell) {
     const iso = toIsoDate(cell.year, cell.month, cell.day);
@@ -75,8 +91,41 @@ export default function DatePicker({
     setView((v) => addMonths(v.year, v.month, delta));
   }
 
+  function openMonths() {
+    setPanel("months");
+  }
+
+  function openYears() {
+    setYearPageStart(yearPageStartFor(view.year));
+    setPanel("years");
+  }
+
+  function selectMonth(month) {
+    if (isMonthDisabled(view.year, month, min, max)) return;
+    setView((v) => ({ ...v, month }));
+    setPanel("days");
+  }
+
+  function selectYear(year) {
+    if (isYearDisabled(year, min, max)) return;
+    setView((v) => ({ year, month: v.month }));
+    setPanel("months");
+  }
+
+  function shiftYearPage(delta) {
+    setYearPageStart((start) => {
+      const next = start + delta;
+      const minP = min ? parseIsoDate(min) : null;
+      const maxP = max ? parseIsoDate(max) : null;
+      if (minP && next + 11 < minP.year) return start;
+      if (maxP && next > maxP.year) return start;
+      return next;
+    });
+  }
+
   const cells = buildCalendarGrid(view.year, view.month);
   const display = value ? formatDisplayDate(value, displayStyle) : "";
+  const yearOptions = Array.from({ length: 12 }, (_, i) => yearPageStart + i);
 
   return (
     <div className={`date-picker-wrap ${className}`.trim()} ref={rootRef}>
@@ -115,55 +164,153 @@ export default function DatePicker({
 
       {open && (
         <div className="date-picker-popover" role="dialog" aria-label={label || "Choose date"}>
-          <div className="date-picker-nav">
-            <button type="button" className="date-picker-nav-btn" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
-              ‹
-            </button>
-            <p className="date-picker-month">
-              {MONTHS_LONG[view.month]} {view.year}
-            </p>
-            <button type="button" className="date-picker-nav-btn" aria-label="Next month" onClick={() => shiftMonth(1)}>
-              ›
-            </button>
-          </div>
-
-          <div className="date-picker-weekdays">
-            {WEEKDAYS.map((d) => (
-              <span key={d} className="date-picker-weekday">{d}</span>
-            ))}
-          </div>
-
-          <div className="date-picker-grid">
-            {cells.map((cell, i) => {
-              const iso = toIsoDate(cell.year, cell.month, cell.day);
-              const selected = value === iso;
-              const isToday =
-                today &&
-                cell.year === today.year &&
-                cell.month === today.month &&
-                cell.day === today.day;
-              const disabled = isDisabledCell(cell);
-              return (
-                <button
-                  key={`${iso}-${i}`}
-                  type="button"
-                  className={[
-                    "date-picker-day",
-                    cell.outside && "outside",
-                    selected && "selected",
-                    isToday && "today",
-                    disabled && "disabled",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  disabled={disabled}
-                  onClick={() => selectCell(cell)}
-                >
-                  {cell.day}
+          {panel === "days" && (
+            <>
+              <div className="date-picker-nav">
+                <button type="button" className="date-picker-nav-btn" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
+                  ‹
                 </button>
-              );
-            })}
-          </div>
+                <div className="date-picker-caption">
+                  <button type="button" className="date-picker-caption-part" onClick={openMonths}>
+                    {MONTHS_LONG[view.month]}
+                  </button>
+                  <button type="button" className="date-picker-caption-part" onClick={openYears}>
+                    {view.year}
+                  </button>
+                </div>
+                <button type="button" className="date-picker-nav-btn" aria-label="Next month" onClick={() => shiftMonth(1)}>
+                  ›
+                </button>
+              </div>
+
+              <div className="date-picker-weekdays">
+                {WEEKDAYS.map((d) => (
+                  <span key={d} className="date-picker-weekday">{d}</span>
+                ))}
+              </div>
+
+              <div className="date-picker-grid">
+                {cells.map((cell, i) => {
+                  const iso = toIsoDate(cell.year, cell.month, cell.day);
+                  const selected = value === iso;
+                  const isToday =
+                    today &&
+                    cell.year === today.year &&
+                    cell.month === today.month &&
+                    cell.day === today.day;
+                  const disabled = isDisabledCell(cell);
+                  return (
+                    <button
+                      key={`${iso}-${i}`}
+                      type="button"
+                      className={[
+                        "date-picker-day",
+                        cell.outside && "outside",
+                        selected && "selected",
+                        isToday && "today",
+                        disabled && "disabled",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      disabled={disabled}
+                      onClick={() => selectCell(cell)}
+                    >
+                      {cell.day}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {panel === "months" && (
+            <>
+              <div className="date-picker-nav">
+                <button type="button" className="date-picker-panel-back" onClick={() => setPanel("days")}>
+                  ← Days
+                </button>
+                <button type="button" className="date-picker-caption-part date-picker-caption-year" onClick={openYears}>
+                  {view.year}
+                </button>
+                <span className="date-picker-nav-spacer" aria-hidden />
+              </div>
+              <div className="date-picker-month-grid">
+                {MONTHS_SHORT.map((name, month) => {
+                  const disabled = isMonthDisabled(view.year, month, min, max);
+                  const selected = view.month === month;
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      className={[
+                        "date-picker-month-cell",
+                        selected && "selected",
+                        disabled && "disabled",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      disabled={disabled}
+                      onClick={() => selectMonth(month)}
+                    >
+                      {name}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {panel === "years" && (
+            <>
+              <div className="date-picker-nav">
+                <button
+                  type="button"
+                  className="date-picker-nav-btn"
+                  aria-label="Previous years"
+                  onClick={() => shiftYearPage(-12)}
+                >
+                  ‹‹
+                </button>
+                <p className="date-picker-year-range">
+                  {yearPageStart} – {yearPageStart + 11}
+                </p>
+                <button
+                  type="button"
+                  className="date-picker-nav-btn"
+                  aria-label="Next years"
+                  onClick={() => shiftYearPage(12)}
+                >
+                  ››
+                </button>
+              </div>
+              <div className="date-picker-year-grid">
+                {yearOptions.map((year) => {
+                  const disabled = isYearDisabled(year, min, max);
+                  const selected = view.year === year;
+                  return (
+                    <button
+                      key={year}
+                      type="button"
+                      className={[
+                        "date-picker-year-cell",
+                        selected && "selected",
+                        disabled && "disabled",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      disabled={disabled}
+                      onClick={() => selectYear(year)}
+                    >
+                      {year}
+                    </button>
+                  );
+                })}
+              </div>
+              <button type="button" className="date-picker-panel-back date-picker-panel-back-block" onClick={() => setPanel("months")}>
+                ← Pick month
+              </button>
+            </>
+          )}
 
           <div className="date-picker-footer">
             <button
@@ -174,6 +321,8 @@ export default function DatePicker({
                 if (!max || compareIso(t, max) <= 0) {
                   if (!min || compareIso(t, min) >= 0) {
                     onChange?.(t);
+                    const p = parseIsoDate(t);
+                    if (p) setView({ year: p.year, month: p.month });
                     setOpen(false);
                   }
                 }

@@ -1,12 +1,21 @@
 import { Link } from "react-router-dom";
 
 export function collectTripPhotos(trip) {
-  return trip.stops.flatMap((stop, si) =>
-    (stop.photos || []).map((photo, pi) => ({
-      ...photo,
-      stopName: stop.name,
-      key: `${stop.id || si}-${photo.id || pi}`,
-    }))
+  return (trip.stops || []).flatMap((stop, si) =>
+    (stop.photos || []).flatMap((photo, pi) => {
+      const hasGps = Number.isFinite(photo.lat) && Number.isFinite(photo.lng);
+      const lat = hasGps ? Number(photo.lat) : Number(stop.lat);
+      const lng = hasGps ? Number(photo.lng) : Number(stop.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+      return [{
+        ...photo,
+        lat,
+        lng,
+        hasGps,
+        stopName: stop.name,
+        key: `${stop.id || si}-${photo.id || pi}`,
+      }];
+    })
   );
 }
 

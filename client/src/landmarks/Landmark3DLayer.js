@@ -1,78 +1,80 @@
 import maplibregl from "maplibre-gl";
 import * as THREE from "three";
+import { createLandmarkMesh } from "./meshes.js";
 
 const ROT_X = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2);
-const BEAM_ORANGE = new THREE.Color("#fc4c02");
-const BEAM_CORE = new THREE.Color("#fff0d8");
+const BEAM_ORANGE = new THREE.Color("#ff5a1f");
 
-function beamHeightM(lm, zoom) {
-  const base = Math.min(Math.max((lm.heightM || 80) * 0.12, 55), 220);
-  if (zoom < 11) return base * 1.8;
-  if (zoom < 13) return base * 1.3;
-  return base;
+function beamHeightM(lm, zoom, active = false) {
+  const base = Math.min(Math.max((lm.heightM || 80) * 0.32, 160), 580);
+  let h = base;
+  if (zoom < 11) h *= 2.4;
+  else if (zoom < 13) h *= 1.85;
+  else if (zoom < 15) h *= 1.35;
+  if (active) h *= 1.15;
+  return h;
 }
 
-function createLightBeam(lm) {
+function createLightBeam(lm, active = false) {
   const group = new THREE.Group();
   const tint = lm.color ? new THREE.Color(lm.color) : BEAM_ORANGE;
-  const beamH = beamHeightM(lm, 14);
-  const baseR = beamH * 0.055;
+  const beamH = beamHeightM(lm, 14, active);
+  const baseR = beamH * 0.028 * (active ? 1.1 : 1);
 
-  const coneGeo = new THREE.CylinderGeometry(beamH * 0.003, baseR * 2.2, beamH, 20, 1, true);
+  const coneGeo = new THREE.CylinderGeometry(beamH * 0.002, baseR * 1.8, beamH, 24, 1, true);
   const coneMat = new THREE.MeshBasicMaterial({
     color: tint,
     transparent: true,
-    opacity: 0.32,
+    opacity: active ? 0.08 : 0.05,
     side: THREE.DoubleSide,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    blending: THREE.NormalBlending,
   });
   const cone = new THREE.Mesh(coneGeo, coneMat);
   cone.position.y = beamH / 2;
   group.add(cone);
 
-  const coreGeo = new THREE.CylinderGeometry(beamH * 0.0015, baseR * 0.55, beamH * 0.96, 10, 1, true);
-  const coreMat = new THREE.MeshBasicMaterial({
-    color: BEAM_CORE,
-    transparent: true,
-    opacity: 0.5,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-  const core = new THREE.Mesh(coreGeo, coreMat);
-  core.position.y = beamH / 2;
-  group.add(core);
-
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(baseR * 0.35, baseR * 1.15, 32),
+    new THREE.RingGeometry(baseR * 0.3, baseR * 0.95, 32),
     new THREE.MeshBasicMaterial({
       color: tint,
       transparent: true,
-      opacity: 0.55,
+      opacity: active ? 0.12 : 0.08,
       side: THREE.DoubleSide,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
     })
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.4;
   group.add(ring);
 
-  const dot = new THREE.Mesh(
-    new THREE.CircleGeometry(baseR * 0.28, 16),
-    new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.85, depthWrite: false })
-  );
-  dot.rotation.x = -Math.PI / 2;
-  dot.position.y = 0.25;
-  group.add(dot);
-
-  group.userData = { coneMat, coreMat, ring: ring.material, beamH };
+  group.userData = { coneMat, ring: ring.material, beamH };
   return group;
 }
 
+function createLandmarkGroup(lm) {
+  const root = new THREE.Group();
+  const mesh = createLandmarkMesh(lm.shape, lm);
+  const meshScale = lm.catalog ? 0.5 : 0.42;
+  mesh.scale.set(meshScale, meshScale, meshScale);
+  root.add(mesh);
+
+  const beam = createLightBeam(lm);
+  root.add(beam);
+
+  root.userData = {
+    mesh,
+    beam,
+    beamH: beam.userData.beamH,
+    coneMat: beam.userData.coneMat,
+    ring: beam.userData.ring,
+  };
+  return root;
+}
+
 /**
- * MapLibre custom layer — glowing light beams at landmark coordinates.
+ * MapLibre custom layer — 3D place silhouettes + light beams at stop coordinates.
  */
 export function createLandmark3DLayer() {
   let map = null;
@@ -80,6 +82,7 @@ export function createLandmark3DLayer() {
   let camera = null;
   let landmarks = [];
   let visible = true;
+  let activeKey = null;
   let t0 = 0;
 
   const layer = {
@@ -112,10 +115,15 @@ export function createLandmark3DLayer() {
       landmarks = [];
 
       for (const lm of items) {
-        const group = createLightBeam(lm);
+        const group = createLandmarkGroup(lm);
         const merc = maplibregl.MercatorCoordinate.fromLngLat([lm.lng, lm.lat], 0);
-        landmarks.push({ lm, group, merc });
+        landmarks.push({ lm, group, merc, key: String(lm.stopId ?? lm.id) });
       }
+    },
+
+    setActiveLandmark(id) {
+      activeKey = id == null ? null : String(id);
+      map?.triggerRepaint();
     },
 
     setVisible(v) {
@@ -126,22 +134,29 @@ export function createLandmark3DLayer() {
       if (!visible || landmarks.length === 0 || !renderer) return;
 
       const zoom = map.getZoom();
-      if (zoom < 9) return;
+      if (zoom < 12) return;
 
       const pulse = 0.88 + Math.sin((performance.now() - t0) * 0.0022) * 0.12;
       const base = new THREE.Matrix4().fromArray(args.defaultProjectionData.mainMatrix);
       renderer.resetState();
 
-      for (const { group, merc, lm } of landmarks) {
-        const { coneMat, coreMat, ring } = group.userData;
-        if (coneMat) coneMat.opacity = 0.28 * pulse;
-        if (coreMat) coreMat.opacity = 0.45 * pulse;
-        if (ring) ring.opacity = 0.5 * pulse;
+      for (const { group, merc, lm, key } of landmarks) {
+        const isActive = activeKey != null && key === activeKey;
+        const { coneMat, ring, mesh, beam, beamH } = group.userData;
+        const targetH = beamHeightM(lm, zoom, isActive);
+        if (beam && beamH) {
+          beam.scale.set(1, targetH / beamH, 1);
+        }
+        if (coneMat) coneMat.opacity = (isActive ? 0.09 : 0.055) * pulse;
+        if (ring) ring.opacity = (isActive ? 0.14 : 0.09) * pulse;
+        if (mesh) {
+          const s = (lm.catalog ? 0.5 : 0.42) * (isActive ? 1.15 : 1);
+          mesh.scale.set(s, s, s);
+        }
 
         const scale = merc.meterInMercatorCoordinateUnits();
-        const hScale = beamHeightM(lm, zoom) / (group.userData.beamH || 80);
         const translate = new THREE.Matrix4().makeTranslation(merc.x, merc.y, merc.z || 0);
-        const scaleMat = new THREE.Matrix4().makeScale(scale, -scale * hScale, scale);
+        const scaleMat = new THREE.Matrix4().makeScale(scale, -scale, scale);
         camera.projectionMatrix = base.clone().multiply(translate).multiply(ROT_X).multiply(scaleMat);
         renderer.render(group, camera);
       }

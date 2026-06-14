@@ -57,6 +57,9 @@ router.post("/", requireAuth, (req, res) => {
     country,
     country_lat,
     country_lng,
+    origin_country,
+    origin_country_lat,
+    origin_country_lng,
     map_presets,
   } = req.body || {};
   if (!title) return res.status(400).json({ error: "Trip title is required" });
@@ -74,13 +77,16 @@ router.post("/", requireAuth, (req, res) => {
     country: country ?? null,
     country_lat: country_lat != null ? Number(country_lat) : null,
     country_lng: country_lng != null ? Number(country_lng) : null,
+    origin_country: origin_country ?? null,
+    origin_country_lat: origin_country_lat != null ? Number(origin_country_lat) : null,
+    origin_country_lng: origin_country_lng != null ? Number(origin_country_lng) : null,
     map_presets: map_presets ?? null,
     is_public: is_public === false ? 0 : 1,
     created_at: new Date().toISOString(),
   };
   db.prepare(
-    `INSERT INTO trips (id, user_id, title, description, start_date, end_date, cover_url, destination, destination_lat, destination_lng, country, country_lat, country_lng, map_presets, is_public, created_at)
-     VALUES (@id, @user_id, @title, @description, @start_date, @end_date, @cover_url, @destination, @destination_lat, @destination_lng, @country, @country_lat, @country_lng, @map_presets, @is_public, @created_at)`
+    `INSERT INTO trips (id, user_id, title, description, start_date, end_date, cover_url, destination, destination_lat, destination_lng, country, country_lat, country_lng, origin_country, origin_country_lat, origin_country_lng, map_presets, is_public, created_at)
+     VALUES (@id, @user_id, @title, @description, @start_date, @end_date, @cover_url, @destination, @destination_lat, @destination_lng, @country, @country_lat, @country_lng, @origin_country, @origin_country_lat, @origin_country_lng, @map_presets, @is_public, @created_at)`
   ).run(trip);
   res.status(201).json({ trip: hydrateTrip(trip, req.user.id) });
 });
@@ -175,6 +181,9 @@ router.patch("/:id", requireAuth, (req, res) => {
     "country",
     "country_lat",
     "country_lng",
+    "origin_country",
+    "origin_country_lat",
+    "origin_country_lng",
     "map_presets",
   ];
   const updates = {};
@@ -184,6 +193,8 @@ router.patch("/:id", requireAuth, (req, res) => {
   if (updates.destination_lng != null) updates.destination_lng = Number(updates.destination_lng);
   if (updates.country_lat != null) updates.country_lat = Number(updates.country_lat);
   if (updates.country_lng != null) updates.country_lng = Number(updates.country_lng);
+  if (updates.origin_country_lat != null) updates.origin_country_lat = Number(updates.origin_country_lat);
+  if (updates.origin_country_lng != null) updates.origin_country_lng = Number(updates.origin_country_lng);
 
   for (const [k, v] of Object.entries(updates)) {
     db.prepare(`UPDATE trips SET ${k} = ? WHERE id = ?`).run(v, trip.id);
@@ -209,7 +220,7 @@ router.post("/:id/stops", requireAuth, (req, res) => {
   if (!trip) return res.status(404).json({ error: "Trip not found" });
   if (trip.user_id !== req.user.id) return res.status(403).json({ error: "Not your trip" });
 
-  const { name, lat, lng, day, visited_on, notes, place_type } = req.body || {};
+  const { name, lat, lng, day, visited_on, notes, place_type, transport_mode } = req.body || {};
   if (!name || lat === undefined || lng === undefined) {
     return res.status(400).json({ error: "name, lat and lng are required" });
   }
@@ -226,12 +237,13 @@ router.post("/:id/stops", requireAuth, (req, res) => {
     visited_on: visited_on ?? null,
     notes: notes ?? null,
     place_type: place_type ?? null,
+    transport_mode: transport_mode ?? null,
     sort_order: maxOrder + 1,
     created_at: new Date().toISOString(),
   };
   db.prepare(
-    `INSERT INTO stops (id, trip_id, name, lat, lng, day, visited_on, notes, place_type, sort_order, created_at)
-     VALUES (@id, @trip_id, @name, @lat, @lng, @day, @visited_on, @notes, @place_type, @sort_order, @created_at)`
+    `INSERT INTO stops (id, trip_id, name, lat, lng, day, visited_on, notes, place_type, transport_mode, sort_order, created_at)
+     VALUES (@id, @trip_id, @name, @lat, @lng, @day, @visited_on, @notes, @place_type, @transport_mode, @sort_order, @created_at)`
   ).run(stop);
   stop.photos = [];
   res.status(201).json({ stop });

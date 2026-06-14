@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api.js";
-import CountryPicker from "./CountryPicker.jsx";
+import CountrySetupPanel from "./CountrySetupPanel.jsx";
 import CountryStepHero from "./CountryStepHero.jsx";
 import TripGlobe from "./TripGlobe.jsx";
+import TripPhotoStrip from "./TripPhotoStrip.jsx";
+import { collectTripPhotos } from "./TripPhotoCollage.jsx";
 import DateRangePicker from "./DateRangePicker.jsx";
 import { CountryFlag, getCountryCode } from "../countryFlags.jsx";
 import { getMapPresetsForCountry } from "../mapPresets.js";
 import { mapPresetsWithUserDefaults } from "../settingsPrefs.js";
+import { loadLastOrigin, saveLastOrigin, tripToOrigin } from "../tripOrigin.js";
 
 export const TRACK_STEPS = [
   { id: "country", n: 1, tab: "1. Where are you going?", progress: "Country" },
@@ -82,16 +85,27 @@ export function TripSetupProgress({ step }) {
 
 export function TripSetupCountryPanel({ trip, onSaved, onContinue }) {
   const [country, setCountry] = useState(() => tripToCountry(trip));
+  const [origin, setOrigin] = useState(() => tripToOrigin(trip) || loadLastOrigin());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     setCountry(tripToCountry(trip));
-  }, [trip.country, trip.country_lat, trip.country_lng]);
+    setOrigin(tripToOrigin(trip) || loadLastOrigin());
+  }, [trip.country, trip.country_lat, trip.country_lng, trip.origin_country, trip.origin_country_lat, trip.origin_country_lng]);
+
+  function handleOriginChange(next) {
+    setOrigin(next);
+    saveLastOrigin(next);
+  }
 
   async function save(nextStep) {
+    if (!origin) {
+      setError("Choose where you're traveling from.");
+      return;
+    }
     if (!country) {
-      setError("Choose a country.");
+      setError("Choose where you're going.");
       return;
     }
     setBusy(true);
@@ -106,6 +120,9 @@ export function TripSetupCountryPanel({ trip, onSaved, onContinue }) {
         destination: country.name,
         destination_lat: country.lat,
         destination_lng: country.lng,
+        origin_country: origin?.name ?? null,
+        origin_country_lat: origin?.lat ?? null,
+        origin_country_lng: origin?.lng ?? null,
       });
       onSaved(updated);
       if (nextStep) onContinue(nextStep);
@@ -118,21 +135,19 @@ export function TripSetupCountryPanel({ trip, onSaved, onContinue }) {
 
   return (
     <div className="new-trip-step country-step">
-      <div className="country-step-layout">
-        <CountryStepHero
-          country={country}
-          selectedLead="Changing the country recenters your map and updates terrain presets."
-        />
-        <div className="country-step-picker">
-          <CountryPicker picked={country} onPick={setCountry} large />
-        </div>
-      </div>
+      <CountrySetupPanel
+        destination={country}
+        onDestinationChange={setCountry}
+        origin={origin}
+        onOriginChange={handleOriginChange}
+        defaultTab="origin"
+      />
       {error && <div className="error">{error}</div>}
       <div className="new-trip-actions">
         <button type="button" className="btn-secondary btn-lg" onClick={() => onContinue("map")}>
           Back to map
         </button>
-        <button type="button" className="btn-primary btn-xl" disabled={busy || !country} onClick={() => save("title")}>
+        <button type="button" className="btn-primary btn-xl" disabled={busy || !origin || !country} onClick={() => save("title")}>
           {busy ? "Saving…" : "Save & continue"}
         </button>
       </div>
@@ -180,6 +195,7 @@ export function TripSetupTitlePanel({ trip, onSaved, onContinue }) {
   }
 
   const country = tripToCountry(trip);
+  const origin = tripToOrigin(trip);
 
   return (
     <form
@@ -199,9 +215,23 @@ export function TripSetupTitlePanel({ trip, onSaved, onContinue }) {
           </div>
           {country && (
             <div className="new-trip-country-pill">
-              <CountryFlag name={country.name} code={country.code} size="md" />
-              <span className="muted small">Tracking in</span>
-              <strong>{country.name}</strong>
+              {origin ? (
+                <>
+                  <CountryFlag name={origin.name} code={origin.code} size="md" />
+                  <span className="muted small">From</span>
+                  <strong>{origin.name}</strong>
+                  <span className="country-route-arrow muted" aria-hidden>→</span>
+                  <CountryFlag name={country.name} code={country.code} size="md" />
+                  <span className="muted small">To</span>
+                  <strong>{country.name}</strong>
+                </>
+              ) : (
+                <>
+                  <CountryFlag name={country.name} code={country.code} size="md" />
+                  <span className="muted small">Tracking in</span>
+                  <strong>{country.name}</strong>
+                </>
+              )}
               <button type="button" className="link-btn small" onClick={() => onContinue("country")}>
                 Change
               </button>
@@ -259,10 +289,17 @@ export function TripSetupStoryPanel({ trip, onSaved, onContinue, onPosted, compa
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [celebrate, setCelebrate] = useState(false);
+  const celebrateGlobeRef = useRef(null);
 
   const stopCount = trip.stops?.length || 0;
   const globeStops = globeStopsFromTrip(trip);
+  const tripOrigin = tripToOrigin(trip);
+  const photos = collectTripPhotos(trip);
   const canPost = stopCount > 0;
+
+  function focusCelebratePhoto(photo) {
+    celebrateGlobeRef.current?.zoomToPhoto?.(photo);
+  }
 
   useEffect(() => {
     setText(trip.description || "");
@@ -304,8 +341,21 @@ export function TripSetupStoryPanel({ trip, onSaved, onContinue, onPosted, compa
           </p>
         </div>
         <div className="story-globe-stage story-globe-stage-lg">
-          <TripGlobe stops={globeStops} height={420} autoRotate />
+          <TripGlobe
+            ref={celebrateGlobeRef}
+            stops={globeStops}
+            origin={tripOrigin}
+            photos={photos}
+            height={420}
+            autoRotate
+            showRoute
+            showPhotoPins
+            onPhotoClick={focusCelebratePhoto}
+          />
         </div>
+        {photos.length > 0 && (
+          <TripPhotoStrip photos={photos} onPhotoSelect={focusCelebratePhoto} />
+        )}
         {text.trim() && <p className="story-posted-desc">{text.trim()}</p>}
         <div className="story-posted-stats muted small">
           <span>{stopCount} stop{stopCount === 1 ? "" : "s"}</span>
@@ -317,7 +367,7 @@ export function TripSetupStoryPanel({ trip, onSaved, onContinue, onPosted, compa
             Keep editing map
           </button>
           <Link to="/" className="btn-primary btn-xl story-feed-link">
-            View on feed
+            Back to feed
           </Link>
         </div>
       </div>
@@ -374,7 +424,7 @@ export function TripSetupStoryPanel({ trip, onSaved, onContinue, onPosted, compa
               {text.trim() && <p className="story-feed-card-desc muted small">{text.trim()}</p>}
               <div className="story-globe-stage">
                 {globeStops.length > 0 ? (
-                  <TripGlobe stops={globeStops} height={300} autoRotate />
+                  <TripGlobe stops={globeStops} origin={tripOrigin} height={300} autoRotate />
                 ) : (
                   <div className="globe-empty">Add stops to preview your globe</div>
                 )}

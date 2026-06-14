@@ -104,13 +104,30 @@ export function resolveLandmark(stop) {
   return null;
 }
 
-export function landmarksFromStops(stops) {
+export function landmarksFromStops(stops, { allStops = false } = {}) {
   const out = [];
   const seen = new Set();
   for (const stop of stops) {
-    const lm = resolveLandmark(stop);
-    if (!lm || seen.has(lm.id)) continue;
-    seen.add(lm.id);
+    let lm = resolveLandmark(stop);
+    if (!lm && allStops) {
+      lm = {
+        id: `stop-${stop.id || stop.name}`,
+        stopId: stop.id,
+        shape: "spire",
+        heightM: 72,
+        color: "#fc4c02",
+        lat: stop.lat,
+        lng: stop.lng,
+        name: stop.name,
+        imageUrl: null,
+        catalog: false,
+      };
+    }
+    if (!lm) continue;
+    lm = { ...lm, stopId: lm.stopId ?? stop.id };
+    const key = lm.stopId ?? lm.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push(lm);
   }
   return out;

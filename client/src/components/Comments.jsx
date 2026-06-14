@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api.js";
+import { IconSend } from "./EngagementIcons.jsx";
 
 function timeAgo(iso) {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
   if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d`;
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export default function Comments({ tripId, currentUser, onCountChange }) {
+export default function Comments({ tripId, currentUser, onCountChange, compact = false, tripAuthorId }) {
   const [comments, setComments] = useState(null);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
@@ -19,13 +21,15 @@ export default function Comments({ tripId, currentUser, onCountChange }) {
   useEffect(() => {
     api
       .listComments(tripId)
-      .then(({ comments }) => setComments(comments))
-      .catch(() => setComments([]));
+      .then(({ comments: list }) => {
+        setComments(list);
+        onCountChange?.(list.length);
+      })
+      .catch(() => {
+        setComments([]);
+        onCountChange?.(0);
+      });
   }, [tripId]);
-
-  function announce(list) {
-    onCountChange && onCountChange(list.length);
-  }
 
   async function submit(e) {
     e.preventDefault();
@@ -36,7 +40,7 @@ export default function Comments({ tripId, currentUser, onCountChange }) {
       const { comment } = await api.addComment(tripId, body.trim());
       setComments((c) => {
         const next = [...c, comment];
-        announce(next);
+        onCountChange?.(next.length);
         return next;
       });
       setBody("");
@@ -52,7 +56,7 @@ export default function Comments({ tripId, currentUser, onCountChange }) {
       await api.deleteComment(tripId, id);
       setComments((c) => {
         const next = c.filter((x) => x.id !== id);
-        announce(next);
+        onCountChange?.(next.length);
         return next;
       });
     } catch (err) {
@@ -61,11 +65,11 @@ export default function Comments({ tripId, currentUser, onCountChange }) {
   }
 
   return (
-    <div className="comments" id="comments">
-      <h2>Comments {comments ? `(${comments.length})` : ""}</h2>
+    <div className={`comments${compact ? " comments-compact" : ""}`}>
+      {!compact && <h3 className="comments-title">Comments</h3>}
 
-      {currentUser && (
-        <form className="comment-form" onSubmit={submit}>
+      {currentUser ? (
+        <form className="comment-compose" onSubmit={submit}>
           <div className="avatar sm">
             {currentUser.avatar_url ? (
               <img src={currentUser.avatar_url} alt={currentUser.username} />
@@ -73,24 +77,36 @@ export default function Comments({ tripId, currentUser, onCountChange }) {
               <span>{currentUser.username[0]?.toUpperCase()}</span>
             )}
           </div>
-          <input
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Add a comment…"
-            maxLength={500}
-          />
-          <button className="btn-primary" style={{ width: "auto" }} disabled={busy || !body.trim()}>
-            {busy ? "…" : "Post"}
-          </button>
+          <div className="comment-compose-field">
+            <input
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Add a comment…"
+              maxLength={500}
+              aria-label="Comment"
+            />
+            <button
+              type="submit"
+              className="comment-send"
+              disabled={busy || !body.trim()}
+              aria-label="Post comment"
+            >
+              <IconSend />
+            </button>
+          </div>
         </form>
+      ) : (
+        <p className="muted small comments-signin">
+          <Link to="/login">Sign in</Link> to join the conversation.
+        </p>
       )}
 
-      {error && <div className="error">{error}</div>}
+      {error && <div className="error comments-error">{error}</div>}
 
       {comments === null ? (
-        <p className="muted">Loading comments…</p>
+        <p className="muted small comments-loading">Loading comments…</p>
       ) : comments.length === 0 ? (
-        <p className="muted">No comments yet — be the first to say something nice.</p>
+        <p className="muted small comments-empty">No comments yet.</p>
       ) : (
         <ul className="comment-list">
           {comments.map((c) => (
@@ -104,10 +120,12 @@ export default function Comments({ tripId, currentUser, onCountChange }) {
               </Link>
               <div className="comment-body">
                 <div className="comment-head">
-                  <Link to={`/u/${c.author.id}`} className="username">{c.author.username}</Link>
-                  <span className="muted small">{timeAgo(c.created_at)}</span>
-                  {currentUser?.id === c.author.id && (
-                    <button className="link-btn danger small" onClick={() => remove(c.id)}>Delete</button>
+                  <Link to={`/u/${c.author.id}`} className="comment-author">{c.author.username}</Link>
+                  <span className="comment-time">{timeAgo(c.created_at)}</span>
+                  {currentUser && (currentUser.id === c.author.id || currentUser.id === tripAuthorId) && (
+                    <button type="button" className="comment-delete" onClick={() => remove(c.id)}>
+                      Delete
+                    </button>
                   )}
                 </div>
                 <p className="comment-text">{c.body}</p>

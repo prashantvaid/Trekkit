@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api } from "../api.js";
 import { DEFAULT_MAP_PRESETS, migrateBasemap } from "../mapPresets.js";
 import { createLandmark3DLayer } from "../landmarks/Landmark3DLayer.js";
 import { landmarksFromStops, resolveLandmark } from "../landmarks/match.js";
+import { transportRouteColors } from "../transportModes.js";
+import { hasOriginCoords } from "../tripOrigin.js";
+import { haversineKm } from "../globeRouteUtils.js";
 
 /** Vector tile styles — `apple` reuses bright tiles with a pastel paint preset. */
 const STYLE_URLS = {
@@ -82,10 +85,10 @@ const APPLE = {
   },
 };
 
-const ROUTE_ORANGE = "#fc4c02";
 const ROUTE_CASING = "#ffffff";
+const DEFAULT_ROUTE_COLOR = transportRouteColors(null).line;
 
-const emptyLine = () => ({ type: "Feature", geometry: { type: "LineString", coordinates: [] }, properties: {} });
+const emptyRoutes = () => ({ type: "FeatureCollection", features: [] });
 const emptyPoints = () => ({ type: "FeatureCollection", features: [] });
 
 function hasCoords(c) {
@@ -125,6 +128,7 @@ function flattenMapPhotos(stops) {
         lat: hasGps ? Number(photo.lat) : Number(stop.lat),
         lng: hasGps ? Number(photo.lng) : Number(stop.lng),
         stopName: stop.name,
+        stopId: stop.id,
         hasGps,
       });
     });
@@ -153,6 +157,46 @@ function firstSymbolLayerId(map) {
     if (layer.type === "symbol") return layer.id;
   }
   return undefined;
+}
+
+/** Data-driven route color — coalesce in case a feature is missing properties. */
+function routeColorExpr(prop, fallback = DEFAULT_ROUTE_COLOR) {
+  return ["coalesce", ["get", prop], fallback];
+}
+
+function routeOpacityExpr(solid = 1, preview = 0.65) {
+  return ["case", ["==", ["get", "preview"], 1], preview, solid];
+}
+
+function applyRoutePaint(map) {
+  if (!map.getLayer("route-line")) return;
+  try {
+    map.setPaintProperty("route-casing", "line-color", ROUTE_CASING);
+    map.setPaintProperty("route-casing", "line-width", 11);
+    map.setPaintProperty("route-casing", "line-opacity", routeOpacityExpr(0.98, 0.7));
+
+    map.setPaintProperty("route-line", "line-color", routeColorExpr("lineColor"));
+    map.setPaintProperty("route-line", "line-width", 7);
+    map.setPaintProperty("route-line", "line-opacity", routeOpacityExpr(1, 0.7));
+
+    map.setPaintProperty("route-flow", "line-color", routeColorExpr("flowColor"));
+    map.setPaintProperty("route-flow", "line-width", 8);
+    map.setPaintProperty("route-flow", "line-opacity", routeOpacityExpr(1, 0.75));
+  } catch {
+    /* layers may not be ready */
+  }
+}
+
+/** Keep colored routes above 3D buildings so they stay visible when pitched. */
+function raiseRouteLayers(map) {
+  for (const id of ["route-casing", "route-line", "route-flow"]) {
+    if (!map.getLayer(id)) continue;
+    try {
+      map.moveLayer(id);
+    } catch {
+      /* ignore ordering errors */
+    }
+  }
 }
 
 function safePaint(map, layerId, prop, value) {
@@ -321,7 +365,7 @@ function mountTripLayers(map) {
   }
 
   if (!map.getSource("route")) {
-    map.addSource("route", { type: "geojson", data: emptyLine() });
+    map.addSource("route", { type: "geojson", data: emptyRoutes() });
     const before = firstSymbolLayerId(map);
     map.addLayer(
       {
@@ -329,7 +373,11 @@ function mountTripLayers(map) {
         type: "line",
         source: "route",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": ROUTE_CASING, "line-width": 9, "line-opacity": 0.95 },
+        paint: {
+          "line-color": ROUTE_CASING,
+          "line-width": 11,
+          "line-opacity": routeOpacityExpr(0.98, 0.7),
+        },
       },
       before
     );
@@ -339,7 +387,11 @@ function mountTripLayers(map) {
         type: "line",
         source: "route",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": ROUTE_ORANGE, "line-width": 5, "line-opacity": 1 },
+        paint: {
+          "line-color": routeColorExpr("lineColor"),
+          "line-width": 7,
+          "line-opacity": routeOpacityExpr(1, 0.7),
+        },
       },
       before
     );
@@ -350,9 +402,9 @@ function mountTripLayers(map) {
         source: "route",
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": "#ff9a5c",
-          "line-width": 6,
-          "line-opacity": 1,
+          "line-color": routeColorExpr("flowColor"),
+          "line-width": 8,
+          "line-opacity": routeOpacityExpr(1, 0.75),
           "line-trim-offset": [0, 0.01],
         },
       },
@@ -378,6 +430,64 @@ function flyToStop(map, stop) {
   });
 }
 
+function flyToPhotoLocation(map, photo) {
+  if (!map || !photo) return Promise.resolve();
+  const lng = Number(photo.lng);
+  const lat = Number(photo.lat);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return Promise.resolve();
+  const zoom = Math.max(17, map.getZoom() < 16.5 ? 17 : map.getZoom());
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      map.off("moveend", onEnd);
+      clearTimeout(fallback);
+      resolve();
+    };
+    const onEnd = () => finish();
+    const fallback = setTimeout(finish, 1300);
+    map.stop();
+    map.flyTo({
+      center: [lng, lat],
+      zoom,
+      pitch: pitchForZoom(zoom),
+      bearing: bearingForZoom(zoom),
+      duration: 1100,
+      essential: true,
+      curve: 1.3,
+    });
+    map.once("moveend", onEnd);
+  });
+}
+
+function photoPinScaleForZoom(zoom) {
+  const z = Math.max(MIN_ZOOM, Math.min(20, zoom));
+  if (z >= 16) return 1;
+  // Modest boost when zoomed out — visible but leaves room for nearby photos
+  return Math.min(1.65, 1 + (16 - z) * 0.11);
+}
+
+function updatePhotoPinScales(map, markers) {
+  const scale = photoPinScaleForZoom(map.getZoom());
+  for (const marker of markers) {
+    const root = marker.getElement?.();
+    if (!root) continue;
+    root.style.setProperty("--photo-pin-scale", String(scale));
+  }
+}
+
+function attachPhotoPinZoomHandler(map, markersRef) {
+  const update = () => updatePhotoPinScales(map, markersRef.current);
+  map.on("zoom", update);
+  map.on("moveend", update);
+  update();
+  return () => {
+    map.off("zoom", update);
+    map.off("moveend", update);
+  };
+}
+
 function addMapMarker(map, element, lng, lat, anchor = "bottom") {
   const lngN = Number(lng);
   const latN = Number(lat);
@@ -388,6 +498,21 @@ function addMapMarker(map, element, lng, lat, anchor = "bottom") {
     pitchAlignment: "map",
     rotationAlignment: "map",
     occludedOpacity: 0.55,
+  })
+    .setLngLat([lngN, latN])
+    .addTo(map);
+}
+
+function addPhotoMarker(map, element, lng, lat) {
+  const lngN = Number(lng);
+  const latN = Number(lat);
+  if (!Number.isFinite(lngN) || !Number.isFinite(latN)) return null;
+  return new maplibregl.Marker({
+    element,
+    anchor: "bottom",
+    pitchAlignment: "viewport",
+    rotationAlignment: "viewport",
+    occludedOpacity: 0.65,
   })
     .setLngLat([lngN, latN])
     .addTo(map);
@@ -423,6 +548,18 @@ function createLandmarkLabelEl(stop, onPinClick) {
   });
 }
 
+function createOriginPinEl(origin) {
+  const inner = document.createElement("div");
+  inner.className = "route-stop-pin origin";
+  inner.innerHTML = `
+    <span class="route-stop-label">From · ${shortName(origin.name)}</span>
+    <span class="route-stop-teardrop"><span class="route-stop-num" aria-hidden>⌂</span></span>
+    <span class="route-stop-shadow" aria-hidden></span>
+  `;
+  inner.title = `Traveling from ${origin.name}`;
+  return wrapMapMarker(inner, { className: "map-marker-origin" });
+}
+
 function createDraftPinEl(name) {
   const inner = document.createElement("div");
   inner.className = "route-stop-pin draft";
@@ -438,10 +575,11 @@ function createPhotoMarkerEl(photo, onPinClick) {
   const inner = document.createElement("div");
   inner.className = `map-photo-pin${photo.hasGps ? " has-gps" : " at-stop"}`;
   inner.innerHTML = `
-    <span class="map-photo-thumb">
-      <img src="${photo.url}" alt="" loading="lazy" />
+    <span class="map-photo-card">
+      <img src="${photo.url}" alt="" loading="lazy" draggable="false" />
     </span>
-    <span class="map-photo-shadow" aria-hidden></span>
+    <span class="map-photo-stem" aria-hidden></span>
+    <span class="map-photo-ground" aria-hidden></span>
   `;
   inner.title = photo.hasGps ? `${photo.stopName} (photo location)` : `${photo.stopName} (at stop)`;
   return wrapMapMarker(inner, {
@@ -450,18 +588,42 @@ function createPhotoMarkerEl(photo, onPinClick) {
   });
 }
 
-export default function TripMap({
-  stops = [],
-  draft = null,
-  focus = null,
-  height = 480,
-  interactive = true,
-  onStopClick,
-  highlightStopId = null,
-  preserveView = false,
-  defaultPresets = DEFAULT_MAP_PRESETS,
-  children = null,
-}) {
+function shouldLinkOriginToStop(origin, stop) {
+  if (!hasOriginCoords(origin) || !stop) return false;
+  return haversineKm(origin.lat, origin.lng, stop.lat, stop.lng) >= 0.05;
+}
+
+function tripCoordBounds(stops, origin = null) {
+  const coords = stops
+    .filter((s) => Number.isFinite(s.lng) && Number.isFinite(s.lat))
+    .map((s) => [Number(s.lng), Number(s.lat)]);
+  if (hasOriginCoords(origin)) coords.push([Number(origin.lng), Number(origin.lat)]);
+  if (!coords.length) return null;
+  return coords.reduce(
+    (b, c) => b.extend(c),
+    new maplibregl.LngLatBounds(coords[0], coords[0])
+  );
+}
+
+export default forwardRef(function TripMap(
+  {
+    stops = [],
+    origin = null,
+    draft = null,
+    focus = null,
+    height = 480,
+    interactive = true,
+    onStopClick,
+    highlightStopId = null,
+    preserveView = false,
+    embedded = false,
+    autoPlayTour = false,
+    onTourStateChange,
+    defaultPresets = DEFAULT_MAP_PRESETS,
+    children = null,
+  },
+  ref
+) {
   const initial = {
     ...DEFAULT_MAP_PRESETS,
     ...defaultPresets,
@@ -474,23 +636,52 @@ export default function TripMap({
   const photoMarkersRef = useRef([]);
   const routeGenRef = useRef(0);
   const readyRef = useRef(false);
-  const introDoneRef = useRef(false);
+  const introDoneRef = useRef(embedded);
+  const autoPlayPendingRef = useRef(autoPlayTour);
+  const autoPlayStartedRef = useRef(false);
   const rotateRef = useRef(null);
   const routeAnimRef = useRef(null);
   const tourRef = useRef(null);
+  const photoZoomHandlerRef = useRef(null);
   const landmarkLayerRef = useRef(null);
   const pinClickRef = useRef(null);
   const stopHitsBoundRef = useRef(false);
   const focusedStopIdRef = useRef(null);
-  const dataRef = useRef({ stops, draft, focus, onStopClick, preserveView, highlightStopId });
-  dataRef.current = { stops, draft, focus, onStopClick, preserveView, highlightStopId };
+  const photoFocusRef = useRef(null);
+  const dataRef = useRef({ stops, origin, draft, focus, onStopClick, preserveView, highlightStopId });
+  dataRef.current = { stops, origin, draft, focus, onStopClick, preserveView, highlightStopId };
+
+  useEffect(() => {
+    autoPlayPendingRef.current = autoPlayTour;
+    if (autoPlayTour) maybeStartAutoTour();
+  }, [autoPlayTour]);
+
+  async function maybeStartAutoTour() {
+    if (!autoPlayPendingRef.current || autoPlayStartedRef.current || !readyRef.current || !mapRef.current) {
+      return;
+    }
+    autoPlayStartedRef.current = true;
+    autoPlayPendingRef.current = false;
+    const map = mapRef.current;
+    if (embedded) await runEmbeddedEntryFly(map);
+    playRouteTour();
+  }
+
+  useImperativeHandle(ref, () => ({
+    playRouteTour,
+    stopRouteTour: () => stopAnimations({ endTour: true }),
+    isTouring: () => touringRef.current,
+  }));
 
   pinClickRef.current = (stop) => {
+    photoFocusRef.current = null;
     focusedStopIdRef.current = stop.id;
     dataRef.current.onStopClick?.(stop);
   };
 
-  const [routeStyle, setRouteStyle] = useState(initial.routeStyle);
+  const [routeStyle, setRouteStyle] = useState(
+    embedded ? "animated" : initial.routeStyle
+  );
   const [autoRotate, setAutoRotate] = useState(false);
   const [touring, setTouring] = useState(false);
   const touringRef = useRef(false);
@@ -538,10 +729,7 @@ export default function TripMap({
       map.setLayoutProperty("route-line", "visibility", vis);
       map.setLayoutProperty("route-flow", "visibility", style.animate ? "visible" : "none");
       map.setPaintProperty("route-line", "line-dasharray", [1, 0]);
-      if (style.showRoute) {
-        map.setPaintProperty("route-casing", "line-opacity", 0.95);
-        map.setPaintProperty("route-line", "line-opacity", style.animate ? 0.38 : 1);
-      }
+      applyRoutePaint(map);
     } catch {
       /* layers may not exist yet */
     }
@@ -607,6 +795,27 @@ export default function TripMap({
     });
   }
 
+  async function runEmbeddedEntryFly(map) {
+    const { stops: s, origin: o } = dataRef.current;
+    if (!s.length && !hasOriginCoords(o)) return;
+
+    if (s.length === 1 && !hasOriginCoords(o)) {
+      const z = Math.max(zoomForPlace(s[0].place_type), 14);
+      await flyTarget(map, [s[0].lng, s[0].lat], z, 2000);
+      return;
+    }
+
+    const bounds = tripCoordBounds(s, o);
+    if (!bounds) return;
+    await fitTarget(map, bounds, {
+      padding: 72,
+      maxZoom: hasOriginCoords(o) ? 6 : 13.5,
+      pitch: hasOriginCoords(o) ? 28 : 52,
+      bearing: -22,
+      duration: 2000,
+    });
+  }
+
   async function playRouteTour() {
     const map = mapRef.current;
     const { stops: s } = dataRef.current;
@@ -617,46 +826,55 @@ export default function TripMap({
     setAutoRotate(false);
     touringRef.current = true;
     setTouring(true);
+    onTourStateChange?.(true);
 
     try {
       for (let i = 0; i < s.length; i++) {
         if (!touringRef.current) break;
         const stop = s[i];
+        landmarkLayerRef.current?.setActiveLandmark(stop.id);
+        focusedStopIdRef.current = stop.id;
         await flyTarget(
           map,
           [stop.lng, stop.lat],
-          Math.max(zoomForPlace(stop.place_type), 15),
-          1600
+          Math.max(zoomForPlace(stop.place_type), 17),
+          1800
         );
         if (!touringRef.current) break;
+        map.triggerRepaint();
         await new Promise((r) => {
-          tourRef.current = setTimeout(r, 700);
+          tourRef.current = setTimeout(r, 1500);
         });
       }
-      if (touringRef.current && s.length > 1) {
-        const coords = s.map((x) => [Number(x.lng), Number(x.lat)]);
-        const bounds = coords.reduce(
-          (b, c) => b.extend(c),
-          new maplibregl.LngLatBounds(coords[0], coords[0])
-        );
-        await fitTarget(map, bounds, {
-          padding: 80,
-          maxZoom: 15,
-          pitch: pitchForZoom(13),
-          bearing: bearingForZoom(13),
-          duration: 1800,
-        });
+      landmarkLayerRef.current?.setActiveLandmark(null);
+      if (
+        touringRef.current &&
+        (s.length > 1 || hasOriginCoords(dataRef.current.origin))
+      ) {
+        const bounds = tripCoordBounds(s, dataRef.current.origin);
+        if (bounds) {
+          await fitTarget(map, bounds, {
+            padding: 80,
+            maxZoom: hasOriginCoords(dataRef.current.origin) ? 6 : 15,
+            pitch: pitchForZoom(13),
+            bearing: bearingForZoom(13),
+            duration: 1800,
+          });
+        }
       }
     } finally {
       touringRef.current = false;
       setTouring(false);
+      onTourStateChange?.(false);
       if (mapRef.current) applyRouteStyle(mapRef.current, routeStyle);
     }
   }
 
   function updateLandmarkLayers(map, s) {
     if (landmarkLayerRef.current) {
-      landmarkLayerRef.current.setLandmarks(landmarksFromStops(s));
+      landmarkLayerRef.current.setLandmarks(
+        landmarksFromStops(s, { allStops: embedded })
+      );
     }
   }
 
@@ -698,27 +916,103 @@ export default function TripMap({
     map.addLayer(layer);
   }
 
-  async function updateRouteGeometry(map, s) {
+  async function updateRouteGeometry(map, s, draft = null, origin = null) {
     const routeSrc = map.getSource("route");
     if (!routeSrc) return;
-    if (s.length < 2) {
-      routeSrc.setData(emptyLine());
+
+    const pairs = [];
+
+    if (s.length > 0 && shouldLinkOriginToStop(origin, s[0])) {
+      pairs.push({
+        from: { lng: origin.lng, lat: origin.lat, name: origin.name },
+        to: s[0],
+        mode: "plane",
+        preview: false,
+        isOrigin: true,
+      });
+    }
+
+    for (let i = 0; i < s.length - 1; i++) {
+      pairs.push({
+        from: s[i],
+        to: s[i + 1],
+        mode: s[i + 1].transport_mode,
+        preview: false,
+      });
+    }
+
+    const draftIsSaved =
+      draft &&
+      s.some(
+        (stop) =>
+          stop.lat === draft.lat &&
+          stop.lng === draft.lng &&
+          shortName(stop.name) === shortName(draft.name)
+      );
+    if (
+      draft &&
+      Number.isFinite(draft.lat) &&
+      Number.isFinite(draft.lng) &&
+      s.length > 0 &&
+      draft.transport_mode &&
+      !draftIsSaved
+    ) {
+      pairs.push({
+        from: s[s.length - 1],
+        to: draft,
+        mode: draft.transport_mode,
+        preview: true,
+      });
+    }
+
+    if (!pairs.length) {
+      routeSrc.setData(emptyRoutes());
       return;
     }
+
     const gen = ++routeGenRef.current;
-    const coordStr = s.map((x) => `${x.lng},${x.lat}`).join(";");
-    let geometry = null;
-    try {
-      const data = await api.getRoute(coordStr);
-      if (gen !== routeGenRef.current) return;
-      geometry = data.geometry;
-    } catch {
-      /* fall back */
-    }
-    if (!geometry) {
-      geometry = { type: "LineString", coordinates: s.map((x) => [x.lng, x.lat]) };
-    }
-    routeSrc.setData({ type: "Feature", geometry, properties: {} });
+    const features = await Promise.all(
+      pairs.map(async (pair) => {
+        const colors = transportRouteColors(pair.mode);
+        const coordStr = `${pair.from.lng},${pair.from.lat};${pair.to.lng},${pair.to.lat}`;
+        let geometry = null;
+        try {
+          const data = await api.getRoute(coordStr);
+          if (gen !== routeGenRef.current) return null;
+          geometry = data.geometry;
+        } catch {
+          /* fall back */
+        }
+        if (!geometry) {
+          geometry = {
+            type: "LineString",
+            coordinates: [
+              [Number(pair.from.lng), Number(pair.from.lat)],
+              [Number(pair.to.lng), Number(pair.to.lat)],
+            ],
+          };
+        }
+        return {
+          type: "Feature",
+          geometry,
+          properties: {
+            lineColor: colors.line,
+            flowColor: colors.flow,
+            mode: pair.mode || "default",
+            preview: pair.preview ? 1 : 0,
+          },
+        };
+      })
+    );
+
+    if (gen !== routeGenRef.current) return;
+    routeSrc.setData({
+      type: "FeatureCollection",
+      features: features.filter(Boolean),
+    });
+    raiseRouteLayers(map);
+    applyRoutePaint(map);
+    applyRouteStyle(map, routeStyle);
   }
 
   function syncPhotoMarkers(map, s) {
@@ -726,32 +1020,69 @@ export default function TripMap({
     photoMarkersRef.current = [];
     for (const photo of flattenMapPhotos(s)) {
       const locLabel = photo.hasGps ? "Taken here" : "At this stop";
-      const popup = new maplibregl.Popup({ offset: 14, closeButton: false, maxWidth: "240px" })
+      const popup = new maplibregl.Popup({
+        offset: (() => {
+          const scale = photoPinScaleForZoom(map.getZoom());
+          return [0, -(52 + 24 * scale)];
+        })(),
+        closeButton: false,
+        maxWidth: "260px",
+      })
         .setHTML(`<div class="map-photo-popup"><img src="${photo.url}" alt="" /><span>${photo.stopName || ""}</span><em>${locLabel}</em></div>`);
       let marker = null;
-      const el = createPhotoMarkerEl(photo, () => marker?.togglePopup());
-      marker = addMapMarker(map, el, photo.lng, photo.lat, "bottom");
+      const onPhotoClick = async () => {
+        if (touringRef.current) {
+          touringRef.current = false;
+          setTouring(false);
+          onTourStateChange?.(false);
+        }
+        photoFocusRef.current = { lng: photo.lng, lat: photo.lat };
+        focusedStopIdRef.current = null;
+        const linkedStop = s.find((st) => String(st.id) === String(photo.stopId));
+        if (linkedStop) {
+          focusedStopIdRef.current = linkedStop.id;
+          dataRef.current.onStopClick?.(linkedStop);
+        }
+        await flyToPhotoLocation(map, photo);
+        const popup = marker?.getPopup();
+        if (popup && !popup.isOpen()) marker.togglePopup();
+      };
+      const el = createPhotoMarkerEl(photo, onPhotoClick);
+      marker = addPhotoMarker(map, el, photo.lng, photo.lat);
       if (!marker) continue;
       marker.setPopup(popup);
       photoMarkersRef.current.push(marker);
     }
+    updatePhotoPinScales(map, photoMarkersRef.current);
   }
 
-  function onStyleReady(map) {
+  async function onStyleReady(map) {
     stopHitsBoundRef.current = false;
     mountTripLayers(map);
     bindStopHitLayer(map);
-    ensureLandmark3DLayer(map);
     configureCity3D(map, "bright");
+    ensureLandmark3DLayer(map);
+    raiseRouteLayers(map);
     if (zoomPitchHandlerRef.current) zoomPitchHandlerRef.current();
     zoomPitchHandlerRef.current = attachZoomPitchHandler(map, () => touringRef.current);
+    if (photoZoomHandlerRef.current) photoZoomHandlerRef.current();
+    photoZoomHandlerRef.current = attachPhotoPinZoomHandler(map, photoMarkersRef);
     readyRef.current = true;
     applyRouteStyle(map, routeStyle);
-    sync(true);
+    await sync(true);
+    await maybeStartAutoTour();
   }
 
   useEffect(() => {
-    const start = hasCoords(focus) ? { center: [focus.lng, focus.lat], zoom: 12 } : { center: [0, 20], zoom: MIN_ZOOM };
+    const { stops: s, focus: f } = dataRef.current;
+    let start;
+    if (embedded && s.length) {
+      const lat = s.reduce((a, x) => a + x.lat, 0) / s.length;
+      const lng = s.reduce((a, x) => a + x.lng, 0) / s.length;
+      start = { center: [lng, lat], zoom: MIN_ZOOM, pitch: 0, bearing: 0 };
+    } else {
+      start = hasCoords(f) ? { center: [f.lng, f.lat], zoom: 12 } : { center: [0, 20], zoom: MIN_ZOOM };
+    }
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: COLORFUL_STYLE,
@@ -773,6 +1104,7 @@ export default function TripMap({
     map.on("load", () => onStyleReady(map));
     map.on("mousedown", () => {
       if (autoRotate) setAutoRotate(false);
+      photoFocusRef.current = null;
     });
 
     return () => {
@@ -780,6 +1112,8 @@ export default function TripMap({
       stopAnimations();
       if (zoomPitchHandlerRef.current) zoomPitchHandlerRef.current();
       zoomPitchHandlerRef.current = null;
+      if (photoZoomHandlerRef.current) photoZoomHandlerRef.current();
+      photoZoomHandlerRef.current = null;
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       photoMarkersRef.current.forEach((m) => m.remove());
@@ -796,6 +1130,7 @@ export default function TripMap({
       map.remove();
       readyRef.current = false;
       introDoneRef.current = false;
+      autoPlayStartedRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -819,11 +1154,12 @@ export default function TripMap({
   useEffect(() => {
     if (readyRef.current) sync();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stops, draft, focus]);
+  }, [stops, origin, draft, focus]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !readyRef.current || highlightStopId == null) return;
+    photoFocusRef.current = null;
     focusedStopIdRef.current = highlightStopId;
     const stop = stops.find((s) => String(s.id) === String(highlightStopId));
     if (stop) flyToStop(map, stop);
@@ -832,10 +1168,15 @@ export default function TripMap({
   async function sync(isIntro = false) {
     const map = mapRef.current;
     if (!map) return;
-    const { stops: s, draft: d, focus: f, preserveView: keepView } = dataRef.current;
+    const { stops: s, draft: d, focus: f, preserveView: keepView, origin: o } = dataRef.current;
 
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
+
+    if (hasOriginCoords(o)) {
+      const originMarker = addMapMarker(map, createOriginPinEl(o), o.lng, o.lat);
+      if (originMarker) markersRef.current.push(originMarker);
+    }
 
     s.forEach((stop, i) => {
       const landmark = resolveLandmark(stop);
@@ -866,10 +1207,12 @@ export default function TripMap({
     updateStopHitLayer(map, s);
     updateLandmarkLayers(map, s);
     syncPhotoMarkers(map, s);
-    await updateRouteGeometry(map, s);
+    await updateRouteGeometry(map, s, d, o);
     map.triggerRepaint();
 
-    if (touringRef.current || keepView) return;
+    if (touringRef.current || keepView || embedded) return;
+
+    if (photoFocusRef.current) return;
 
     if (d && Number.isFinite(d.lat)) {
       focusedStopIdRef.current = null;
@@ -889,9 +1232,24 @@ export default function TripMap({
       return;
     }
 
-    if (!introDoneRef.current && (hasCoords(f) || s.length > 0)) {
+    if (!introDoneRef.current && (hasCoords(f) || s.length > 0 || hasOriginCoords(o))) {
       introDoneRef.current = true;
-      const target = s.length ? [s[0].lng, s[0].lat] : [f.lng, f.lat];
+      const bounds = tripCoordBounds(s, o);
+      if (bounds && (s.length > 1 || (hasOriginCoords(o) && (s.length > 0 || hasCoords(f))))) {
+        map.fitBounds(bounds, {
+          padding: { top: 120, bottom: 100, left: 80, right: 80 },
+          maxZoom: hasOriginCoords(o) && s.length <= 1 ? 5.5 : 15,
+          pitch: hasOriginCoords(o) ? pitchForZoom(5) : pitchForZoom(13),
+          bearing: bearingForZoom(hasOriginCoords(o) ? 5 : 13),
+          duration: 1000,
+        });
+        return;
+      }
+      const target = s.length
+        ? [s[0].lng, s[0].lat]
+        : hasOriginCoords(o)
+          ? [o.lng, o.lat]
+          : [f.lng, f.lat];
       const introZoom = s.length === 1 ? zoomForPlace(s[0].place_type) : s.length > 1 ? 13 : 11;
       const introPitch = pitchForZoom(introZoom);
       map.easeTo({
@@ -905,6 +1263,17 @@ export default function TripMap({
     }
 
     if (s.length === 1) {
+      const bounds = tripCoordBounds(s, o);
+      if (bounds && hasOriginCoords(o) && shouldLinkOriginToStop(o, s[0])) {
+        map.fitBounds(bounds, {
+          padding: { top: 120, bottom: 100, left: 80, right: 80 },
+          maxZoom: 6,
+          pitch: pitchForZoom(5),
+          bearing: bearingForZoom(5),
+          duration: 900,
+        });
+        return;
+      }
       const z = zoomForPlace(s[0].place_type);
       map.easeTo({
         center: [s[0].lng, s[0].lat],
@@ -914,14 +1283,24 @@ export default function TripMap({
         duration: 900,
       });
     } else if (s.length > 1) {
-      const coords = s.map((x) => [x.lng, x.lat]);
-      const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
-      const z = 13;
+      const bounds = tripCoordBounds(s, o);
+      if (!bounds) return;
+      const z = hasOriginCoords(o) ? 5 : 13;
       map.fitBounds(bounds, {
         padding: { top: 120, bottom: 100, left: 80, right: 80 },
-        maxZoom: 15,
+        maxZoom: hasOriginCoords(o) ? 6 : 15,
         pitch: pitchForZoom(z),
         bearing: bearingForZoom(z),
+        duration: 900,
+      });
+    } else if (hasOriginCoords(o) && hasCoords(f)) {
+      const bounds = tripCoordBounds([], o);
+      bounds.extend([f.lng, f.lat]);
+      map.fitBounds(bounds, {
+        padding: { top: 120, bottom: 100, left: 80, right: 80 },
+        maxZoom: 5,
+        pitch: 0,
+        bearing: 0,
         duration: 900,
       });
     } else if (hasCoords(f)) {
@@ -942,6 +1321,7 @@ export default function TripMap({
         <div ref={containerRef} className="trip-map" />
         {children}
       </div>
+      {!embedded && (
       <div className="map-config-bar map-config-animated">
         <label className="map-config-field">
           <span>Route</span>
@@ -964,6 +1344,7 @@ export default function TripMap({
           {touring ? "Touring…" : "Play route"}
         </button>
       </div>
+      )}
     </div>
   );
-}
+});
